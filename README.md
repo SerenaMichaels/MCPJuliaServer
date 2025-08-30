@@ -18,9 +18,12 @@ This project implements an MCP server following the JSON-RPC 2.0 specification o
   - System information
   - File server operations (list, read, write, delete files)
   - PostgreSQL database operations (query, tables, transactions)
+  - Database administration (create/drop databases, users, schemas, import/export)
 - Intelligent directory detection for file operations
 - Secure sandboxed file access
 - PostgreSQL connection pooling and transaction support
+- JSON schema to SQL table conversion
+- Data import/export in JSON and CSV formats
 
 ## Project Structure
 
@@ -35,6 +38,7 @@ julia_mcp_server/
 ├── example.jl            # Example server with sample tools
 ├── file_server_example.jl # File server with filesystem tools
 ├── postgres_example.jl   # PostgreSQL database server
+├── db_admin_example.jl   # Database administration server
 ├── test_mcp.jl           # Test utilities
 └── README.md
 ```
@@ -61,6 +65,12 @@ cd julia_mcp_server
 julia postgres_example.jl
 ```
 
+**Database Administration Server (database management):**
+```bash
+cd julia_mcp_server
+julia db_admin_example.jl
+```
+
 The file server automatically detects the operating system and uses appropriate defaults:
 - **Windows**: `D:\MCP-Agents`  
 - **WSL**: `/mnt/d/MCP-Agents` (if D: drive is mounted)
@@ -80,6 +90,8 @@ POSTGRES_PASSWORD=mypassword \
 POSTGRES_DB=mydatabase \
 julia postgres_example.jl
 ```
+
+Both PostgreSQL servers use the same configuration format. The database admin server includes all the features of the basic PostgreSQL server plus advanced administration tools.
 
 The server will start and listen for JSON-RPC messages on stdin, responding on stdout.
 
@@ -118,6 +130,18 @@ You can test the server by sending JSON-RPC messages manually:
 {"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "execute_query", "arguments": {"query": "SELECT version()"}}, "id": 11}
 {"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "describe_table", "arguments": {"table": "users", "schema": "public"}}, "id": 12}
 {"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "execute_transaction", "arguments": {"queries": ["CREATE TABLE test (id INT)", "INSERT INTO test VALUES (1)", "DROP TABLE test"]}}, "id": 13}
+```
+
+**Database Administration Examples:**
+```json
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "create_database", "arguments": {"name": "my_new_db", "owner": "postgres"}}, "id": 14}
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "create_user", "arguments": {"username": "app_user", "password": "secret123", "createdb": true}}, "id": 15}
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "grant_privileges", "arguments": {"username": "app_user", "database": "my_new_db", "privileges": ["CONNECT", "CREATE"]}}, "id": 16}
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "create_table_from_json", "arguments": {"table": "users", "schema": "{\"properties\":{\"id\":{\"type\":\"integer\"},\"name\":{\"type\":\"string\"}},\"primary_key\":[\"id\"]}"}}, "id": 17}
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "import_data", "arguments": {"table": "users", "data": "[{\"id\":1,\"name\":\"Alice\"},{\"id\":2,\"name\":\"Bob\"}]", "format": "json"}}, "id": 18}
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "export_data", "arguments": {"table": "users", "format": "csv", "limit": 100}}, "id": 19}
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "export_schema", "arguments": {"database": "my_new_db", "format": "sql"}}, "id": 20}
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "drop_database", "arguments": {"name": "my_new_db", "force": true}}, "id": 21}
 ```
 
 ## Creating Custom Tools
