@@ -9,12 +9,17 @@ using LibPQ
 
 # PostgreSQL connection configuration
 const PG_CONFIG = Dict{String,String}(
-    "host" => get(ENV, "POSTGRES_HOST", "172.27.80.1"),
+    "host" => get(ENV, "POSTGRES_HOST", "localhost"),
     "port" => get(ENV, "POSTGRES_PORT", "5432"),
     "user" => get(ENV, "POSTGRES_USER", "postgres"),
-    "password" => get(ENV, "POSTGRES_PASSWORD", "New12@@DB"),
+    "password" => get(ENV, "POSTGRES_PASSWORD", ""),
     "dbname" => get(ENV, "POSTGRES_DB", "postgres")
 )
+
+# Validate required configuration
+if isempty(PG_CONFIG["password"])
+    error("POSTGRES_PASSWORD environment variable must be set. Copy .env.example to .env and configure your database settings.")
+end
 
 # Global connection pool
 mutable struct ConnectionPool
