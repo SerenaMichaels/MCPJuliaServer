@@ -1,0 +1,12 @@
+name = "JuliaMCPServer"
+uuid = "12345678-9abc-def0-1234-567890abcdef"
+authors = ["User <user@example.com>"]
+version = "0.1.0"
+
+[deps]
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+
+[compat]
+julia = "1.6"
+JSON3 = "1"
