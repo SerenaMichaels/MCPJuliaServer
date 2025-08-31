@@ -28,12 +28,13 @@ This project implements an MCP server following the JSON-RPC 2.0 specification o
 - **JSON Schema to SQL**: Automatic table creation from JSON schemas
 - **Cross-Database Migration**: Transfer data between database instances
 
-### Windows Integration
+### Windows Integration & Documentation
 - **HTTP Endpoints**: REST API access for Windows Claude Desktop
 - **WSL Bridge**: Seamless Windows ↔ WSL communication
 - **Auto Configuration**: Automatic WSL IP detection and Claude config generation
 - **PowerShell Integration**: Native Windows HTTP commands
 - **Dual Mode Servers**: Both stdio MCP and HTTP REST API support
+- **Self-Documenting**: Each server provides comprehensive documentation at `/mcp/docs`
 
 ## Project Structure
 
@@ -102,6 +103,63 @@ If you're running Claude Desktop on Windows but want to use MCP servers in WSL:
    - **📁 mcp-file-http**: File system operations in WSL
    - **🔧 mcp-db-admin-http**: Database administration
    - **🎯 mcp-orchestrator-http**: Multi-server workflows
+
+### Claude Desktop Configuration Details
+
+Each MCP server provides complete Claude Desktop configuration in its documentation. Access the docs at:
+- **PostgreSQL:** http://YOUR_WSL_IP:8080/mcp/docs
+- **File Operations:** http://YOUR_WSL_IP:8081/mcp/docs
+- **Database Admin:** http://YOUR_WSL_IP:8082/mcp/docs
+- **Orchestrator:** http://YOUR_WSL_IP:8083/mcp/docs
+
+**Sample Claude Desktop Configuration:**
+```json
+{
+  "mcpServers": {
+    "mcp-postgres-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8080/mcp/tools/call' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{name=$args[0]; arguments=(ConvertFrom-Json $args[1])}); Write-Output ($response.result.content[0].text)"
+      ],
+      "env": {},
+      "description": "PostgreSQL MCP Server via HTTP from WSL - Execute SQL queries and database operations"
+    },
+    "mcp-file-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8081/mcp/tools/call' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{name=$args[0]; arguments=(ConvertFrom-Json $args[1])}); Write-Output ($response.result.content[0].text)"
+      ],
+      "env": {},
+      "description": "File Operations MCP Server via HTTP from WSL - Read, write, and manage files"
+    },
+    "mcp-db-admin-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8082/mcp/tools/call' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{name=$args[0]; arguments=(ConvertFrom-Json $args[1])}); Write-Output ($response.result.content[0].text)"
+      ],
+      "env": {},
+      "description": "Database Administration MCP Server via HTTP from WSL - Create databases, manage users"
+    },
+    "mcp-orchestrator-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8083/mcp/orchestrator' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{workflow=$args[0]; parameters=(ConvertFrom-Json $args[1])}); Write-Output ($response.result)"
+      ],
+      "env": {},
+      "description": "High-level MCP Orchestrator via HTTP - Execute multi-server workflows and complex operations"
+    }
+  }
+}
+```
+
+**Important Notes:**
+- Replace `172.27.85.131` with your actual WSL IP address (get it with `hostname -I` in WSL)
+- The configuration is automatically generated with the correct IP when you run `setup_windows_access.sh`
+- The orchestrator server uses a special `/mcp/orchestrator` endpoint for direct workflow execution
 
 **Windows Server Management:**
 ```bash
@@ -339,7 +397,47 @@ export MCP_HTTP_DEBUG=true
 ./windows_config/setup_windows_access.sh start
 ```
 
-## Documentation
+## Server Documentation & API Reference
+
+Each MCP server provides comprehensive self-documenting capabilities:
+
+### 📖 Live Documentation Endpoints
+- **PostgreSQL Server:** http://YOUR_WSL_IP:8080/mcp/docs
+- **File Operations Server:** http://YOUR_WSL_IP:8081/mcp/docs
+- **Database Admin Server:** http://YOUR_WSL_IP:8082/mcp/docs
+- **Orchestrator Server:** http://YOUR_WSL_IP:8083/mcp/docs
+
+### 🌐 API Endpoints (All Servers)
+- **GET /mcp/health** - Server health check
+- **GET /mcp/info** - Server information and capabilities
+- **GET /mcp/docs** - Complete interactive documentation
+- **POST /mcp/tools/list** - List all available tools with schemas
+- **POST /mcp/tools/call** - Execute a specific tool
+- **POST /mcp/orchestrator** - Direct workflow execution (orchestrator only)
+
+### 📋 Documentation Features
+- **Auto-Generated**: Documentation is generated from actual server capabilities
+- **Tool Schemas**: Complete JSON schemas for all tools with examples
+- **Claude Desktop Integration**: Copy-paste ready PowerShell configurations
+- **WSL IP Detection**: Automatically detects and displays current WSL IP
+- **Server-Specific Guides**: Tailored documentation for each server type
+- **Troubleshooting**: Common issues and solutions
+- **Professional UI**: Responsive HTML interface with syntax highlighting
+
+### 🤖 For Claude Desktop Users
+Claude can query the documentation endpoints to:
+- Discover server capabilities dynamically
+- Get complete tool schemas for better argument validation  
+- Access troubleshooting guides
+- Generate better plans based on available tools
+
+**Example: Claude querying server documentation:**
+```
+Claude can visit http://172.27.85.131:8080/mcp/docs to see all PostgreSQL server capabilities,
+tool schemas, and usage examples, enabling more efficient query planning.
+```
+
+## Additional Documentation
 
 - **Installation Guide**: [INSTALL.md](INSTALL.md)
 - **Site Configuration**: [SITE_CONFIG.md](SITE_CONFIG.md)
