@@ -123,40 +123,28 @@ Each MCP server provides complete Claude Desktop configuration in its documentat
 {
   "mcpServers": {
     "mcp-postgres-http": {
-      "command": "powershell",
-      "args": [
-        "-Command",
-        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8080/mcp/tools/call' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{name=$args[0]; arguments=(ConvertFrom-Json $args[1])}); Write-Output ($response.result.content[0].text)"
-      ],
+      "command": "node",
+      "args": ["-e", "const http = require('http'); const data = JSON.stringify({name: process.argv[2], arguments: JSON.parse(process.argv[3] || '{}')}); const req = http.request('http://172.27.85.131:8080/mcp/tools/call', {method: 'POST', headers: {'Content-Type': 'application/json', 'Content-Length': data.length}}, res => {let body = ''; res.on('data', d => body += d); res.on('end', () => {try {const result = JSON.parse(body); console.log(JSON.stringify(result.result || result));} catch(e) {console.log(body);}});}); req.write(data); req.end();"],
       "env": {},
-      "description": "PostgreSQL MCP Server via HTTP from WSL - Execute SQL queries and database operations"
+      "description": "PostgreSQL MCP Server via HTTP - Execute SQL queries and database operations"
     },
     "mcp-file-http": {
-      "command": "powershell",
-      "args": [
-        "-Command",
-        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8081/mcp/tools/call' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{name=$args[0]; arguments=(ConvertFrom-Json $args[1])}); Write-Output ($response.result.content[0].text)"
-      ],
+      "command": "node",
+      "args": ["-e", "const http = require('http'); const data = JSON.stringify({name: process.argv[2], arguments: JSON.parse(process.argv[3] || '{}')}); const req = http.request('http://172.27.85.131:8081/mcp/tools/call', {method: 'POST', headers: {'Content-Type': 'application/json', 'Content-Length': data.length}}, res => {let body = ''; res.on('data', d => body += d); res.on('end', () => {try {const result = JSON.parse(body); console.log(JSON.stringify(result.result || result));} catch(e) {console.log(body);}});}); req.write(data); req.end();"],
       "env": {},
-      "description": "File Operations MCP Server via HTTP from WSL - Read, write, and manage files"
+      "description": "File Operations MCP Server via HTTP - Read, write, and manage files"
     },
     "mcp-db-admin-http": {
-      "command": "powershell",
-      "args": [
-        "-Command",
-        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8082/mcp/tools/call' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{name=$args[0]; arguments=(ConvertFrom-Json $args[1])}); Write-Output ($response.result.content[0].text)"
-      ],
+      "command": "node",
+      "args": ["-e", "const http = require('http'); const data = JSON.stringify({name: process.argv[2], arguments: JSON.parse(process.argv[3] || '{}')}); const req = http.request('http://172.27.85.131:8082/mcp/tools/call', {method: 'POST', headers: {'Content-Type': 'application/json', 'Content-Length': data.length}}, res => {let body = ''; res.on('data', d => body += d); res.on('end', () => {try {const result = JSON.parse(body); console.log(JSON.stringify(result.result || result));} catch(e) {console.log(body);}});}); req.write(data); req.end();"],
       "env": {},
-      "description": "Database Administration MCP Server via HTTP from WSL - Create databases, manage users"
+      "description": "Database Administration MCP Server via HTTP - Create databases, manage users"
     },
     "mcp-orchestrator-http": {
-      "command": "powershell",
-      "args": [
-        "-Command",
-        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8083/mcp/orchestrator' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{workflow=$args[0]; parameters=(ConvertFrom-Json $args[1])}); Write-Output ($response.result)"
-      ],
+      "command": "node", 
+      "args": ["-e", "const http = require('http'); const data = JSON.stringify({name: process.argv[2], arguments: JSON.parse(process.argv[3] || '{}')}); const req = http.request('http://172.27.85.131:8083/mcp/tools/call', {method: 'POST', headers: {'Content-Type': 'application/json', 'Content-Length': data.length}}, res => {let body = ''; res.on('data', d => body += d); res.on('end', () => {try {const result = JSON.parse(body); console.log(JSON.stringify(result.result || result));} catch(e) {console.log(body);}});}); req.write(data); req.end();"],
       "env": {},
-      "description": "High-level MCP Orchestrator via HTTP - Execute multi-server workflows and complex operations"
+      "description": "MCP Orchestrator via HTTP - Execute multi-server workflows and complex operations"
     }
   }
 }
