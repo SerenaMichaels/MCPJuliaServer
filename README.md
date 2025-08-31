@@ -23,7 +23,7 @@ This project implements an MCP server following the JSON-RPC 2.0 specification o
 - **HTTP Bridge**: REST API endpoints for Windows Claude Desktop access
 
 ### Available Tools
-- **Database Operations**: SQL queries, table management, connection pooling
+- **Database Operations**: SQL queries, table management, connection pooling with database targeting
 - **File Operations**: Read, write, create directories with security sandboxing  
 - **Database Administration**: Create/drop databases, user management, privileges
 - **Data Import/Export**: JSON and CSV support with schema validation
@@ -160,10 +160,12 @@ Each MCP server provides complete Claude Desktop configuration in its documentat
 
 **Verified Working Setup:**
 ✅ **4 MCP Servers Available in Claude Desktop:**
-- **PostgreSQL MCP Server** - Execute SQL queries, list tables, describe schemas
+- **PostgreSQL MCP Server** - Execute SQL queries, list tables, describe schemas with database targeting support
 - **File Operations MCP Server** - Read, write, manage files and directories (default mount: `D:\MCP-Agents`)
 - **Database Administration MCP Server** - Create databases, import/export data
 - **MCP Orchestrator Server** - Multi-server workflows and automation
+
+**✅ Database Targeting Fixed:** Tables are now created in the correct database when specified (e.g., create tables in "TestDB" instead of defaulting to "postgres" database)
 
 **Troubleshooting:**
 - If servers show "failed" in Claude Desktop, check that Node.js is installed on Windows
@@ -268,6 +270,18 @@ You can test the server by sending JSON-RPC messages manually:
 {"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "execute_query", "arguments": {"query": "SELECT version()"}}, "id": 11}
 {"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "describe_table", "arguments": {"table": "users", "schema": "public"}}, "id": 12}
 {"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "execute_transaction", "arguments": {"queries": ["CREATE TABLE test (id INT)", "INSERT INTO test VALUES (1)", "DROP TABLE test"]}}, "id": 13}
+```
+
+**PostgreSQL Database Targeting Examples:**
+```json
+# Execute SQL in specific database
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "execute_sql", "arguments": {"query": "CREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(50))", "database": "TestDB"}}, "id": 14}
+
+# List tables in specific database
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "list_tables", "arguments": {"database": "TestDB"}}, "id": 15}
+
+# Describe table in specific database
+{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "describe_table", "arguments": {"table_name": "users", "database": "TestDB"}}, "id": 16}
 ```
 
 **Database Administration Examples:**

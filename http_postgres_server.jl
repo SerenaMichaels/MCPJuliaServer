@@ -77,6 +77,24 @@ function get_connection()
     return POOL.connections[POOL.current_index]
 end
 
+# Get connection to specific database
+function get_connection(database::String)
+    try
+        host = SiteConfig.get_config("POSTGRES_HOST")
+        port = SiteConfig.get_config("POSTGRES_PORT") 
+        user = SiteConfig.get_config("POSTGRES_USER")
+        password = SiteConfig.get_config("POSTGRES_PASSWORD")
+        
+        conn = LibPQ.Connection(
+            "host=$host port=$port dbname=$database user=$user password=$password"
+        )
+        return conn
+    catch e
+        @error "Failed to connect to database '$database'" exception=e
+        rethrow(e)
+    end
+end
+
 # MCP Tool definitions (same as original)
 const TOOLS = [
     Dict(
@@ -140,11 +158,11 @@ function execute_sql_tool(args::Dict)
     end
     
     try
-        conn = get_connection()
-        
-        # Switch database if specified
+        # Create connection to specific database or use default
         if !isempty(database)
-            LibPQ.execute(conn, "\\c $database")
+            conn = get_connection(database)
+        else
+            conn = get_connection()
         end
         
         result = LibPQ.execute(conn, query)
@@ -185,10 +203,11 @@ function list_tables_tool(args::Dict)
     database = get(args, "database", "")
     
     try
-        conn = get_connection()
-        
+        # Create connection to specific database or use default
         if !isempty(database)
-            LibPQ.execute(conn, "\\c $database")
+            conn = get_connection(database)
+        else
+            conn = get_connection()
         end
         
         query = """
@@ -229,10 +248,11 @@ function describe_table_tool(args::Dict)
     end
     
     try
-        conn = get_connection()
-        
+        # Create connection to specific database or use default
         if !isempty(database)
-            LibPQ.execute(conn, "\\c $database")
+            conn = get_connection(database)
+        else
+            conn = get_connection()
         end
         
         # Get column information
