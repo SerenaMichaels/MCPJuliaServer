@@ -2,9 +2,11 @@
 
 A Model Context Protocol (MCP) server implementation in Julia that provides tools for AI agents to interact with.
 
+**✅ VERIFIED WORKING:** Successfully tested with Claude Desktop on Windows via WSL with full Node.js MCP wrapper integration.
+
 ## Overview
 
-This project implements an MCP server following the JSON-RPC 2.0 specification over stdio transport. It provides a framework for creating custom tools that can be called by AI agents like Claude Code.
+This project implements an MCP server following the JSON-RPC 2.0 specification over stdio transport. It provides a framework for creating custom tools that can be called by AI agents like Claude Code. Features complete Windows Claude Desktop integration via HTTP bridge and Node.js MCP wrapper.
 
 ## Features
 
@@ -151,9 +153,22 @@ Each MCP server provides complete Claude Desktop configuration in its documentat
 ```
 
 **Important Notes:**
-- Replace `172.27.85.131` with your actual WSL IP address (get it with `hostname -I` in WSL)
+- Replace `172.27.85.131` with your actual WSL IP address (get it with `hostname -I` in WSL)  
 - The configuration is automatically generated with the correct IP when you run `setup_windows_access.sh`
-- The orchestrator server uses a special `/mcp/orchestrator` endpoint for direct workflow execution
+- **Node.js is required** on Windows for the MCP wrapper to work properly
+- After installing Node.js and copying the configuration, restart Claude Desktop completely
+
+**Verified Working Setup:**
+✅ **4 MCP Servers Available in Claude Desktop:**
+- **PostgreSQL MCP Server** - Execute SQL queries, list tables, describe schemas
+- **File Operations MCP Server** - Read, write, manage files and directories  
+- **Database Administration MCP Server** - Create databases, import/export data
+- **MCP Orchestrator Server** - Multi-server workflows and automation
+
+**Troubleshooting:**
+- If servers show "failed" in Claude Desktop, check that Node.js is installed on Windows
+- Restart Claude Desktop after any configuration changes
+- Check server logs at `%APPDATA%\Claude\logs\mcp-server-*.log` for debugging
 
 **Windows Server Management:**
 ```bash
