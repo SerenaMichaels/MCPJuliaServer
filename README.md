@@ -8,22 +8,32 @@ This project implements an MCP server following the JSON-RPC 2.0 specification o
 
 ## Features
 
+### Core MCP Functionality
 - JSON-RPC 2.0 communication over stdin/stdout
 - MCP protocol implementation
 - Extensible tool system
-- Cross-platform support (Windows, Linux, WSL)
-- Example tools included:
-  - Calculator (basic math operations)
-  - Random number generator  
-  - System information
-  - File server operations (list, read, write, delete files)
-  - PostgreSQL database operations (query, tables, transactions)
-  - Database administration (create/drop databases, users, schemas, import/export)
-- Intelligent directory detection for file operations
-- Secure sandboxed file access
-- PostgreSQL connection pooling and transaction support
-- JSON schema to SQL table conversion
-- Data import/export in JSON and CSV formats
+- Cross-platform support (Windows, Linux, macOS, WSL)
+
+### MCP Server Suite
+- **PostgreSQL Server**: Advanced database operations, queries, transactions
+- **File Server**: Secure file operations with cross-platform path handling
+- **Database Admin Server**: Database/user management, schema operations, import/export
+- **HTTP Bridge**: REST API endpoints for Windows Claude Desktop access
+
+### Available Tools
+- **Database Operations**: SQL queries, table management, connection pooling
+- **File Operations**: Read, write, create directories with security sandboxing  
+- **Database Administration**: Create/drop databases, user management, privileges
+- **Data Import/Export**: JSON and CSV support with schema validation
+- **JSON Schema to SQL**: Automatic table creation from JSON schemas
+- **Cross-Database Migration**: Transfer data between database instances
+
+### Windows Integration
+- **HTTP Endpoints**: REST API access for Windows Claude Desktop
+- **WSL Bridge**: Seamless Windows ↔ WSL communication
+- **Auto Configuration**: Automatic WSL IP detection and Claude config generation
+- **PowerShell Integration**: Native Windows HTTP commands
+- **Dual Mode Servers**: Both stdio MCP and HTTP REST API support
 
 ## Project Structure
 
@@ -42,6 +52,67 @@ julia_mcp_server/
 ├── test_mcp.jl           # Test utilities
 └── README.md
 ```
+
+## Quick Start
+
+### For Claude Desktop Users
+
+#### WSL/Linux Users
+1. **One-line installation and setup:**
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/SerenaMichaels/MCPJuliaServer/main/scripts/install.sh | bash
+   ```
+
+2. **Configure Claude Desktop:**
+   ```bash
+   ./claude_config/setup_claude_config.sh
+   ```
+
+3. **Start servers automatically (optional):**
+   ```bash
+   sudo ./scripts/setup-services.sh
+   ```
+
+#### Windows Users (Claude Desktop on Windows → WSL Servers)
+
+If you're running Claude Desktop on Windows but want to use MCP servers in WSL:
+
+1. **In WSL - Install and setup servers:**
+   ```bash
+   # Install the MCP servers in WSL
+   curl -fsSL https://raw.githubusercontent.com/SerenaMichaels/MCPJuliaServer/main/scripts/install.sh | bash
+   
+   # Setup HTTP endpoints for Windows access
+   ./windows_config/setup_windows_access.sh start
+   ```
+   
+   This will:
+   - Start HTTP servers on ports 8080-8083
+   - Auto-detect your WSL IP address 
+   - Generate Windows Claude Desktop configuration
+   - Display setup instructions
+
+2. **In Windows - Configure Claude Desktop:**
+   - Copy the generated configuration file to Windows
+   - Location: `%APPDATA%\Claude\claude_desktop_config.json`
+   - Restart Claude Desktop
+
+3. **Available Windows MCP Servers:**
+   - **📊 mcp-postgres-http**: SQL queries and database operations
+   - **📁 mcp-file-http**: File system operations in WSL
+   - **🔧 mcp-db-admin-http**: Database administration
+   - **🎯 mcp-orchestrator-http**: Multi-server workflows
+
+**Windows Server Management:**
+```bash
+# In WSL - manage HTTP servers
+./windows_config/setup_windows_access.sh status   # Check status
+./windows_config/setup_windows_access.sh stop     # Stop servers
+./windows_config/setup_windows_access.sh restart  # Restart servers
+```
+
+#### Native Windows Users
+For native Windows installation (no WSL), see [Windows Installation Guide](INSTALL.md#windows).
 
 ## Usage
 
@@ -187,8 +258,93 @@ This implementation supports the following MCP methods:
 
 - Julia 1.6+
 - JSON3.jl - for JSON parsing and generation
-- UUIDs.jl - for unique identifier generation
+- UUIDs.jl - for unique identifier generation  
 - LibPQ.jl - for PostgreSQL database connectivity (postgres_example.jl only)
+- HTTP.jl - for HTTP server functionality (Windows bridge)
+
+## Windows-Specific Troubleshooting
+
+### Common Windows + WSL Issues
+
+**"Connection refused" from Windows Claude**
+```bash
+# In WSL - check server status
+./windows_config/setup_windows_access.sh status
+
+# Test connectivity from WSL
+curl http://localhost:8080/mcp/health
+
+# Check WSL IP address  
+hostname -I
+```
+
+**"Server not responding"**
+```bash
+# Check server logs
+tail -f logs/*_http.log
+
+# Restart servers
+./windows_config/setup_windows_access.sh restart
+
+# Verify Julia packages
+julia --project=. -e "using Pkg; Pkg.status()"
+```
+
+**"PowerShell execution errors"**
+- Ensure PowerShell execution policy allows scripts
+- Check Windows Firewall settings for WSL communication
+- Verify the WSL IP address in your Claude config matches current IP
+
+**Network connectivity test:**
+```powershell
+# From Windows PowerShell - test WSL server
+Invoke-RestMethod -Uri http://YOUR_WSL_IP:8080/mcp/health
+```
+
+### Windows Firewall Configuration
+
+If Windows Claude cannot reach WSL servers:
+
+1. **Windows Settings** → **Privacy & Security** → **Windows Security** → **Firewall & network protection**
+2. **Allow an app through firewall**  
+3. Add PowerShell and allow private network access
+4. Or temporarily disable firewall for testing
+
+### WSL Network Issues
+
+**WSL IP changes after reboot:**
+```bash
+# Get current WSL IP
+hostname -I | awk '{print $1}'
+
+# Update Windows Claude config with new IP
+./windows_config/setup_windows_access.sh start
+```
+
+**Port conflicts:**
+```bash
+# Check if ports are in use
+netstat -tulpn | grep :8080
+
+# Use different ports if needed
+MCP_HTTP_PORT=9080 ./windows_config/setup_windows_access.sh start
+```
+
+### Detailed Logs
+
+Enable debug logging for troubleshooting:
+```bash
+export MCP_DEBUG_COMMUNICATION=true
+export MCP_HTTP_DEBUG=true
+./windows_config/setup_windows_access.sh start
+```
+
+## Documentation
+
+- **Installation Guide**: [INSTALL.md](INSTALL.md)
+- **Site Configuration**: [SITE_CONFIG.md](SITE_CONFIG.md)
+- **Windows Setup**: [windows_config/README.md](windows_config/README.md)
+- **Claude Configuration**: [claude_config/README.md](claude_config/README.md)
 
 ## License
 
