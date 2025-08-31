@@ -7,19 +7,18 @@ include("src/JuliaMCPServer.jl")
 using .JuliaMCPServer
 using LibPQ
 
-# PostgreSQL connection configuration
-const PG_CONFIG = Dict{String,String}(
-    "host" => get(ENV, "POSTGRES_HOST", "localhost"),
-    "port" => get(ENV, "POSTGRES_PORT", "5432"),
-    "user" => get(ENV, "POSTGRES_USER", "postgres"),
-    "password" => get(ENV, "POSTGRES_PASSWORD", ""),
-    "dbname" => get(ENV, "POSTGRES_DB", "postgres")
-)
+# Load site configuration
+include("config/site_config.jl")
+using .SiteConfig
 
-# Validate required configuration
-if isempty(PG_CONFIG["password"])
-    error("POSTGRES_PASSWORD environment variable must be set. Copy .env.example to .env and configure your database settings.")
-end
+# Load configuration with site-specific precedence
+SiteConfig.load_config(".")
+
+# Get database configuration with site-specific settings
+const PG_CONFIG = SiteConfig.get_db_config()
+
+# Validate configuration
+SiteConfig.validate_config()
 
 # Global connection pool
 mutable struct ConnectionPool

@@ -19,3 +19,27 @@ Thumbs.db
 
 # Test artifacts
 test/tmp/
+
+# Environment and site-specific configuration
+.env
+.env.local
+.env.site
+.env.production
+.env.staging
+.env.development
+
+# Site-specific data and logs
+data/
+logs/
+*.log
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+backup/
+backups/
+*.backup
+*.bak

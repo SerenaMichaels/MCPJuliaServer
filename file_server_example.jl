@@ -6,14 +6,21 @@ Pkg.activate(".")
 include("src/JuliaMCPServer.jl")
 using .JuliaMCPServer
 
+# Load site configuration
+include("config/site_config.jl")
+using .SiteConfig
+
+# Load configuration with site-specific precedence
+SiteConfig.load_config(".")
+
 # Cross-platform default directory detection
 function get_default_mcp_dir()
-    # Check if MCP_FILE_SERVER_BASE is explicitly set
-    env_base = get(ENV, "MCP_FILE_SERVER_BASE", nothing)
-    if env_base !== nothing
-        return env_base
-    end
-    
+    # Use site configuration system
+    return SiteConfig.get_file_server_config()
+end
+
+# Legacy function for backwards compatibility
+function get_legacy_default_mcp_dir()
     # Detect operating system and set appropriate default
     if Sys.iswindows()
         # Native Windows
