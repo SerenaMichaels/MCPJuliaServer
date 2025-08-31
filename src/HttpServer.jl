@@ -127,8 +127,18 @@ function create_router(mcp_handler::Function, config::HttpServerConfig)
             # Parse URL path
             uri_parts = split(req.target, "/"; keepempty=false)
             
+            # Handle root redirect
+            if length(uri_parts) == 0 || (length(uri_parts) == 1 && uri_parts[1] == "")
+                # Redirect to documentation
+                headers = ["Location" => "/mcp/docs"]
+                if config.cors_enabled
+                    headers = vcat(headers, cors_headers())
+                end
+                return HTTP.Response(302, headers, "Redirecting to documentation...")
+            end
+            
             if length(uri_parts) < 2 || uri_parts[1] != "mcp"
-                return error_response(404, "Not found", config)
+                return error_response(404, "Not found - Try /mcp/docs for documentation", config)
             end
             
             # Route MCP requests

@@ -107,6 +107,12 @@ If you're running Claude Desktop on Windows but want to use MCP servers in WSL:
 ### Claude Desktop Configuration Details
 
 Each MCP server provides complete Claude Desktop configuration in its documentation. Access the docs at:
+- **PostgreSQL:** http://YOUR_WSL_IP:8080/ (auto-redirects to docs)
+- **File Operations:** http://YOUR_WSL_IP:8081/ (auto-redirects to docs)
+- **Database Admin:** http://YOUR_WSL_IP:8082/ (auto-redirects to docs)
+- **Orchestrator:** http://YOUR_WSL_IP:8083/ (auto-redirects to docs)
+
+**Direct documentation URLs:**
 - **PostgreSQL:** http://YOUR_WSL_IP:8080/mcp/docs
 - **File Operations:** http://YOUR_WSL_IP:8081/mcp/docs
 - **Database Admin:** http://YOUR_WSL_IP:8082/mcp/docs
@@ -402,12 +408,20 @@ export MCP_HTTP_DEBUG=true
 Each MCP server provides comprehensive self-documenting capabilities:
 
 ### 📖 Live Documentation Endpoints
+**Easy Access URLs (with auto-redirect):**
+- **PostgreSQL Server:** http://YOUR_WSL_IP:8080/
+- **File Operations Server:** http://YOUR_WSL_IP:8081/
+- **Database Admin Server:** http://YOUR_WSL_IP:8082/
+- **Orchestrator Server:** http://YOUR_WSL_IP:8083/
+
+**Direct Documentation URLs:**
 - **PostgreSQL Server:** http://YOUR_WSL_IP:8080/mcp/docs
 - **File Operations Server:** http://YOUR_WSL_IP:8081/mcp/docs
 - **Database Admin Server:** http://YOUR_WSL_IP:8082/mcp/docs
 - **Orchestrator Server:** http://YOUR_WSL_IP:8083/mcp/docs
 
 ### 🌐 API Endpoints (All Servers)
+- **GET /** - Auto-redirect to documentation (HTTP 302)
 - **GET /mcp/health** - Server health check
 - **GET /mcp/info** - Server information and capabilities
 - **GET /mcp/docs** - Complete interactive documentation
@@ -423,6 +437,8 @@ Each MCP server provides comprehensive self-documenting capabilities:
 - **Server-Specific Guides**: Tailored documentation for each server type
 - **Troubleshooting**: Common issues and solutions
 - **Professional UI**: Responsive HTML interface with syntax highlighting
+- **User-Friendly URLs**: Root URLs automatically redirect to documentation
+- **Better Error Messages**: Clear guidance when accessing invalid endpoints
 
 ### 🤖 For Claude Desktop Users
 Claude can query the documentation endpoints to:
