@@ -1,0 +1,48 @@
+{
+  "mcpServers": {
+    "mcp-postgres-server": {
+      "command": "julia",
+      "args": [
+        "--project=/home/seren/julia_mcp_server",
+        "/home/seren/julia_mcp_server/postgres_example.jl"
+      ],
+      "env": {
+        "POSTGRES_HOST": "172.27.80.1",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "New12@@DB",
+        "POSTGRES_DB": "postgres",
+        "MCP_DEV_MODE": "true"
+      },
+      "description": "PostgreSQL MCP Server - Execute SQL queries, manage database objects, and perform advanced database operations"
+    },
+    "mcp-file-server": {
+      "command": "julia",
+      "args": [
+        "--project=/home/seren/julia_mcp_server", 
+        "/home/seren/julia_mcp_server/file_server_example.jl"
+      ],
+      "env": {
+        "MCP_FILE_SERVER_BASE": "/mnt/d/MCP-Agents",
+        "MCP_DEV_MODE": "true"
+      },
+      "description": "File Operations MCP Server - Read, write, create directories, and manage file system operations with security controls"
+    },
+    "mcp-db-admin-server": {
+      "command": "julia",
+      "args": [
+        "--project=/home/seren/julia_mcp_server",
+        "/home/seren/julia_mcp_server/db_admin_example.jl"
+      ],
+      "env": {
+        "POSTGRES_HOST": "172.27.80.1",
+        "POSTGRES_PORT": "5432", 
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "New12@@DB",
+        "POSTGRES_DB": "postgres",
+        "MCP_DEV_MODE": "true"
+      },
+      "description": "Database Administration MCP Server - Create databases, manage users, import/export data, and schema operations"
+    }
+  }
+}
