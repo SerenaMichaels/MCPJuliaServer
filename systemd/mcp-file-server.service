@@ -1,0 +1,51 @@
+[Unit]
+Description=MCP File Server
+Documentation=https://github.com/SerenaMichaels/MCPJuliaServer
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=mcpserver
+Group=mcpserver
+WorkingDirectory=/opt/mcp-julia-server
+Environment=JULIA_DEPOT_PATH=/opt/mcp-julia-server/.julia
+EnvironmentFile=-/opt/mcp-julia-server/.env
+ExecStartPre=/usr/local/bin/julia --project=/opt/mcp-julia-server -e "using Pkg; Pkg.instantiate()"
+ExecStart=/usr/local/bin/julia --project=/opt/mcp-julia-server /opt/mcp-julia-server/file_server_example.jl
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mcp-julia-server/logs
+ReadWritePaths=/var/log/mcp
+ReadWritePaths=/opt/mcp-data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+LockPersonality=true
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-file-server
+
+[Install]
+WantedBy=multi-user.target

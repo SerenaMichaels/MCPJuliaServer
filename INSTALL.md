@@ -327,16 +327,64 @@ julia --project=. -e "using Pkg; Pkg.test(\"LibPQ\")"
 
 ## Deployment Options
 
-### Systemd Service (Linux)
-```bash
-# Copy service file
-sudo cp scripts/mcp-julia-server.service /etc/systemd/system/
+### Systemd Services (Linux)
 
-# Enable and start
-sudo systemctl daemon-reload
-sudo systemctl enable mcp-julia-server
-sudo systemctl start mcp-julia-server
+#### Automatic Service Setup
+The installation includes a complete systemd service configuration for all MCP servers:
+```bash
+# Run the service setup script (included with installation)
+sudo /opt/mcp-julia-server/scripts/setup-services.sh
 ```
+
+#### Manual Service Configuration
+```bash
+# Copy all service files
+sudo cp /opt/mcp-julia-server/systemd/*.service /etc/systemd/system/
+sudo cp /opt/mcp-julia-server/systemd/*.target /etc/systemd/system/
+
+# Reload systemd and enable services
+sudo systemctl daemon-reload
+sudo systemctl enable mcp-servers.target
+sudo systemctl start mcp-servers.target
+```
+
+#### Service Management
+```bash
+# Start all MCP servers
+sudo systemctl start mcp-servers.target
+
+# Stop all MCP servers  
+sudo systemctl stop mcp-servers.target
+
+# Check status of all servers
+sudo systemctl status mcp-servers.target
+
+# Check individual server status
+sudo systemctl status mcp-postgres-server
+sudo systemctl status mcp-file-server
+sudo systemctl status mcp-db-admin-server
+
+# View real-time logs
+sudo journalctl -u mcp-postgres-server -f
+sudo journalctl -u mcp-file-server -f
+sudo journalctl -u mcp-db-admin-server -f
+
+# Restart all servers
+sudo systemctl restart mcp-servers.target
+```
+
+#### Available Services
+- `mcp-postgres-server.service` - PostgreSQL MCP server
+- `mcp-file-server.service` - File operations MCP server  
+- `mcp-db-admin-server.service` - Database administration MCP server
+- `mcp-servers.target` - Manages all MCP servers as a group
+
+All services are configured with:
+- Automatic restart on failure
+- Security hardening (restricted file system access)
+- Resource limits
+- Proper logging to systemd journal
+- Dependency management (PostgreSQL services wait for database)
 
 ### Process Manager (PM2)
 ```bash

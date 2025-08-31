@@ -1,0 +1,8 @@
+[Unit]
+Description=MCP Julia Server Suite
+Documentation=https://github.com/SerenaMichaels/MCPJuliaServer
+After=network.target postgresql.service
+Wants=mcp-postgres-server.service mcp-file-server.service mcp-db-admin-server.service
+
+[Install]
+WantedBy=multi-user.target

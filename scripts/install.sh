@@ -345,6 +345,29 @@ run_tests() {
     log "Installation tests completed"
 }
 
+setup_services_option() {
+    log "Service startup configuration..."
+    echo ""
+    echo -e "${BLUE}Would you like to configure the MCP servers to start automatically on boot?${NC}"
+    read -p "This will create systemd services for all MCP servers [y/N]: " -n 1 -r
+    echo
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        log "Setting up systemd services..."
+        if [[ -f "$INSTALL_DIR/scripts/setup-services.sh" ]]; then
+            "$INSTALL_DIR/scripts/setup-services.sh"
+            log "✅ MCP servers configured for automatic startup"
+        else
+            warn "Service setup script not found at $INSTALL_DIR/scripts/setup-services.sh"
+            echo "You can set up services later by running:"
+            echo "  sudo $INSTALL_DIR/scripts/setup-services.sh"
+        fi
+    else
+        log "Skipping service setup. You can configure services later by running:"
+        echo "  sudo $INSTALL_DIR/scripts/setup-services.sh"
+    fi
+}
+
 print_next_steps() {
     log "Installation completed successfully!"
     echo ""
@@ -383,9 +406,9 @@ main() {
     setup_postgresql
     create_service_user
     install_mcp_server
-    setup_systemd_service
     create_scripts
     run_tests
+    setup_services_option
     print_next_steps
 }
 
