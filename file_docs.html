@@ -1,0 +1,81 @@
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>MCP Server Documentation - File</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin: -30px -30px 30px -30px; }
+                .tool { background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 6px; border-left: 4px solid #28a745; }
+                .code { background: #f4f4f4; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 0.9em; overflow-x: auto; }
+                h1, h2, h3 { color: #333; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>MCP File Server</h1>
+                    <p>Model Context Protocol Server Documentation</p>
+                </div>
+                
+                <h2>Server Information</h2>
+                <ul>
+                    <li><strong>Server Type:</strong> file</li>
+                    <li><strong>WSL IP:</strong> 172.27.85.131</li>
+                    <li><strong>Port:</strong> 8081</li>
+                    <li><strong>Base URL:</strong> http://172.27.85.131:8081</li>
+                </ul>
+
+                <h2>Available Tools (5)</h2>
+                <div class="tool">
+                        <h3>list_directory</h3>
+                        <p>List contents of a directory with file details</p>
+                        <div class="code">{"properties":{"path":{"type":"string","description":"Directory path to list (relative to base directory)"}},"required":["path"],"type":"object"}</div>
+                    </div><div class="tool">
+                        <h3>read_file</h3>
+                        <p>Read the contents of a text file</p>
+                        <div class="code">{"properties":{"path":{"type":"string","description":"File path to read (relative to base directory)"}},"required":["path"],"type":"object"}</div>
+                    </div><div class="tool">
+                        <h3>write_file</h3>
+                        <p>Write content to a file</p>
+                        <div class="code">{"properties":{"content":{"type":"string","description":"Content to write to the file"},"path":{"type":"string","description":"File path to write (relative to base directory)"}},"required":["path","content"],"type":"object"}</div>
+                    </div><div class="tool">
+                        <h3>create_directory</h3>
+                        <p>Create a new directory</p>
+                        <div class="code">{"properties":{"path":{"type":"string","description":"Directory path to create (relative to base directory)"}},"required":["path"],"type":"object"}</div>
+                    </div><div class="tool">
+                        <h3>delete_file</h3>
+                        <p>Delete a file or directory</p>
+                        <div class="code">{"properties":{"path":{"type":"string","description":"File or directory path to delete (relative to base directory)"}},"required":["path"],"type":"object"}</div>
+                    </div>
+
+                <h2>Claude Desktop Configuration</h2>
+                <p>Add this to your Claude Desktop configuration at: <strong>%APPDATA%/Claude/claude_desktop_config.json</strong></p>
+                <div class="code">
+{
+  "mcpServers": {
+    "mcp-file-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8081/mcp/tools/call' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{name=$args[0]; arguments=(ConvertFrom-Json $args[1])}); Write-Output ($response.result.content[0].text)"
+      ],
+      "env": {},
+      "description": "MCP File Server via HTTP"
+    }
+  }
+}
+                </div>
+
+                <h2>API Endpoints</h2>
+                <ul>
+                    <li><strong>GET /mcp/health</strong> - Health check</li>
+                    <li><strong>GET /mcp/info</strong> - Server information</li>
+                    <li><strong>GET /mcp/docs</strong> - This documentation page</li>
+                    <li><strong>POST /mcp/tools/list</strong> - List available tools</li>
+                    <li><strong>POST /mcp/tools/call</strong> - Execute a tool</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        

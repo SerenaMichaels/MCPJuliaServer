@@ -1,0 +1,73 @@
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>MCP Server Documentation - Postgres</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin: -30px -30px 30px -30px; }
+                .tool { background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 6px; border-left: 4px solid #28a745; }
+                .code { background: #f4f4f4; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 0.9em; overflow-x: auto; }
+                h1, h2, h3 { color: #333; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>MCP Postgres Server</h1>
+                    <p>Model Context Protocol Server Documentation</p>
+                </div>
+                
+                <h2>Server Information</h2>
+                <ul>
+                    <li><strong>Server Type:</strong> postgres</li>
+                    <li><strong>WSL IP:</strong> 172.27.85.131</li>
+                    <li><strong>Port:</strong> 8080</li>
+                    <li><strong>Base URL:</strong> http://172.27.85.131:8080</li>
+                </ul>
+
+                <h2>Available Tools (3)</h2>
+                <div class="tool">
+                        <h3>execute_sql</h3>
+                        <p>Execute SQL query on PostgreSQL database with optional database targeting</p>
+                        <div class="code">{"properties":{"query":{"type":"string","description":"SQL query to execute"},"database":{"type":"string","description":"Optional database name to connect to"}},"required":["query"],"type":"object"}</div>
+                    </div><div class="tool">
+                        <h3>list_tables</h3>
+                        <p>List all tables in the database with their schemas</p>
+                        <div class="code">{"properties":{"database":{"type":"string","description":"Optional database name"}},"type":"object"}</div>
+                    </div><div class="tool">
+                        <h3>describe_table</h3>
+                        <p>Get detailed information about a specific table including columns, types, and constraints</p>
+                        <div class="code">{"properties":{"table_name":{"type":"string","description":"Name of the table to describe"},"database":{"type":"string","description":"Optional database name"}},"required":["table_name"],"type":"object"}</div>
+                    </div>
+
+                <h2>Claude Desktop Configuration</h2>
+                <p>Add this to your Claude Desktop configuration at: <strong>%APPDATA%/Claude/claude_desktop_config.json</strong></p>
+                <div class="code">
+{
+  "mcpServers": {
+    "mcp-postgres-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$response = Invoke-RestMethod -Uri 'http://172.27.85.131:8080/mcp/tools/call' -Method POST -ContentType 'application/json' -Body (ConvertTo-Json @{name=$args[0]; arguments=(ConvertFrom-Json $args[1])}); Write-Output ($response.result.content[0].text)"
+      ],
+      "env": {},
+      "description": "MCP Postgres Server via HTTP"
+    }
+  }
+}
+                </div>
+
+                <h2>API Endpoints</h2>
+                <ul>
+                    <li><strong>GET /mcp/health</strong> - Health check</li>
+                    <li><strong>GET /mcp/info</strong> - Server information</li>
+                    <li><strong>GET /mcp/docs</strong> - This documentation page</li>
+                    <li><strong>POST /mcp/tools/list</strong> - List available tools</li>
+                    <li><strong>POST /mcp/tools/call</strong> - Execute a tool</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        
