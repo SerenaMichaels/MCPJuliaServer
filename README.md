@@ -161,7 +161,7 @@ Each MCP server provides complete Claude Desktop configuration in its documentat
 **Verified Working Setup:**
 ✅ **4 MCP Servers Available in Claude Desktop:**
 - **PostgreSQL MCP Server** - Execute SQL queries, list tables, describe schemas
-- **File Operations MCP Server** - Read, write, manage files and directories  
+- **File Operations MCP Server** - Read, write, manage files and directories (default mount: `D:\MCP-Agents`)
 - **Database Administration MCP Server** - Create databases, import/export data
 - **MCP Orchestrator Server** - Multi-server workflows and automation
 

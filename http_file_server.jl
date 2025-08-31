@@ -14,6 +14,7 @@ using .HttpServer
 using JSON3
 using HTTP
 using Dates
+# Use standard path functions
 
 # Load site configuration
 include("config/site_config.jl")
@@ -118,7 +119,7 @@ function validate_path(requested_path::String)
     base_dir = abspath(FILE_BASE_DIR)
     
     # Resolve the requested path relative to base
-    if isabs(requested_path)
+    if isabspath(requested_path)
         # If absolute path provided, ensure it's within base directory
         full_path = abspath(requested_path)
     else
@@ -421,8 +422,9 @@ function main()
         
         # Standard MCP stdio server
         server = MCPServer(
-            name="file-mcp-server",
-            version="1.0.0"
+            "file-mcp-server",
+            "1.0.0",
+            "File operations MCP server with secure directory access"
         )
         
         # Add tools
