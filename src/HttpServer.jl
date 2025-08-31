@@ -4,6 +4,7 @@ using HTTP
 using JSON3
 using Base64
 using Sockets
+using Dates
 
 export start_http_server, stop_http_server, HttpServerConfig
 
@@ -142,6 +143,8 @@ function create_router(mcp_handler::Function, config::HttpServerConfig)
                             return handle_call_tool(req, mcp_handler, config)
                         end
                     end
+                elseif uri_parts[2] == "orchestrator"
+                    return handle_orchestrator(req, mcp_handler, config)
                 end
             elseif req.method == "GET"
                 if uri_parts[2] == "health"
@@ -274,6 +277,57 @@ function handle_server_info(req::HTTP.Request, config::HttpServerConfig)
     )
     
     return success_response(info_data, config)
+end
+
+"""
+Handle orchestrator endpoint
+"""
+function handle_orchestrator(req::HTTP.Request, mcp_handler::Function, config::HttpServerConfig)
+    body_data = parse_request_body(req)
+    
+    if body_data === nothing
+        return error_response(400, "Invalid JSON request body", config)
+    end
+    
+    try
+        workflow = get(body_data, "workflow", "")
+        parameters_str = get(body_data, "parameters", "{}")
+        
+        # Parse parameters if they're a string
+        parameters = if isa(parameters_str, String)
+            isempty(parameters_str) || parameters_str == "{}" ? Dict() : JSON3.read(parameters_str, Dict)
+        else
+            parameters_str
+        end
+        
+        # Create MCP request for the orchestrator handler
+        mcp_request = Dict(
+            "method" => "tools/call",
+            "params" => Dict(
+                "name" => workflow,
+                "arguments" => parameters
+            ),
+            "id" => 1
+        )
+        
+        # Call the MCP handler
+        result = mcp_handler(mcp_request)
+        
+        # Extract the result text from the MCP response
+        result_text = ""
+        if haskey(result, "result") && haskey(result["result"], "content") && 
+           !isempty(result["result"]["content"])
+            result_text = result["result"]["content"][1]["text"]
+        else
+            result_text = JSON3.write(Dict("error" => "Unknown workflow: $workflow"))
+        end
+        
+        return success_response(result_text, config)
+        
+    catch e
+        @error "Orchestrator endpoint error" exception=e
+        return error_response(500, "Internal server error: $(string(e))", config)
+    end
 end
 
 """

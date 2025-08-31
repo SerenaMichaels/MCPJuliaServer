@@ -406,8 +406,9 @@ function main()
         # Start HTTP server
         server = start_http_server(handle_mcp_request, config)
         
-        # Print Windows connection instructions
-        print_windows_instructions(config)
+        # Server is running
+        wsl_ip = HttpServer.get_wsl_ip()
+        @info "🪟 Windows access available at http://$wsl_ip:$http_port"
         
         # Keep server running
         @info "🔄 Server running... Press Ctrl+C to stop"
