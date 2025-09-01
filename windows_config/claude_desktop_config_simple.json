@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "mcp-postgres-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$body = @{name=$args[0]; arguments=if($args[1]){$args[1]|ConvertFrom-Json}else{@{}}} | ConvertTo-Json -Depth 10; $r = Invoke-RestMethod -Uri http://172.27.85.131:8080/mcp/tools/call -Method POST -ContentType application/json -Body $body; $r.result | ConvertTo-Json -Compress"
+      ],
+      "env": {},
+      "description": "PostgreSQL MCP Server via HTTP"
+    },
+    "mcp-file-http": {
+      "command": "powershell",
+      "args": [
+        "-Command", 
+        "$body = @{name=$args[0]; arguments=if($args[1]){$args[1]|ConvertFrom-Json}else{@{}}} | ConvertTo-Json -Depth 10; $r = Invoke-RestMethod -Uri http://172.27.85.131:8081/mcp/tools/call -Method POST -ContentType application/json -Body $body; $r.result | ConvertTo-Json -Compress"
+      ],
+      "env": {},
+      "description": "File Operations MCP Server via HTTP"
+    },
+    "mcp-db-admin-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$body = @{name=$args[0]; arguments=if($args[1]){$args[1]|ConvertFrom-Json}else{@{}}} | ConvertTo-Json -Depth 10; $r = Invoke-RestMethod -Uri http://172.27.85.131:8082/mcp/tools/call -Method POST -ContentType application/json -Body $body; $r.result | ConvertTo-Json -Compress"
+      ],
+      "env": {},
+      "description": "Database Administration MCP Server via HTTP"
+    },
+    "mcp-orchestrator-http": {
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "$body = @{name=$args[0]; arguments=if($args[1]){$args[1]|ConvertFrom-Json}else{@{}}} | ConvertTo-Json -Depth 10; $r = Invoke-RestMethod -Uri http://172.27.85.131:8083/mcp/tools/call -Method POST -ContentType application/json -Body $body; $r.result | ConvertTo-Json -Compress"
+      ],
+      "env": {},
+      "description": "MCP Orchestrator via HTTP"
+    }
+  }
+}

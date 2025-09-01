@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "mcp-postgres-http": {
+      "command": "C:\\path\\to\\mcp_postgres.bat",
+      "env": {},
+      "description": "PostgreSQL MCP Server via HTTP - Execute SQL queries and database operations"
+    },
+    "mcp-file-http": {
+      "command": "C:\\path\\to\\mcp_file.bat",
+      "env": {},
+      "description": "File Operations MCP Server via HTTP - Read, write, and manage files"
+    },
+    "mcp-db-admin-http": {
+      "command": "C:\\path\\to\\mcp_db_admin.bat",
+      "env": {},
+      "description": "Database Administration MCP Server via HTTP - Create databases, manage users"
+    },
+    "mcp-orchestrator-http": {
+      "command": "C:\\path\\to\\mcp_orchestrator.bat",
+      "env": {},
+      "description": "MCP Orchestrator via HTTP - Execute multi-server workflows and complex operations"
+    }
+  }
+}

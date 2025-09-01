@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "mcp-postgres-http": {
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\seren\\mcp_wrapper.ps1", "http://172.27.85.131:8080"],
+      "env": {},
+      "description": "PostgreSQL MCP Server via HTTP"
+    },
+    "mcp-file-http": {
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\seren\\mcp_wrapper.ps1", "http://172.27.85.131:8081"],
+      "env": {},
+      "description": "File Operations MCP Server via HTTP"
+    },
+    "mcp-db-admin-http": {
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\seren\\mcp_wrapper.ps1", "http://172.27.85.131:8082"],
+      "env": {},
+      "description": "Database Administration MCP Server via HTTP"
+    },
+    "mcp-orchestrator-http": {
+      "command": "powershell", 
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\seren\\mcp_wrapper.ps1", "http://172.27.85.131:8083"],
+      "env": {},
+      "description": "MCP Orchestrator via HTTP"
+    }
+  }
+}
