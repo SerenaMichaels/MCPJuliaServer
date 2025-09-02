@@ -1,0 +1,16 @@
+{
+  "name": "claude-bridge-windows",
+  "version": "1.0.0",
+  "description": "Windows Bridge for Claude Communication",
+  "main": "windows_bridge_server.js",
+  "scripts": {
+    "start": "node windows_bridge_server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "cors": "^2.8.0",
+    "ws": "^8.14.0",
+    "node-fetch": "^2.6.0",
+    "uuid": "^9.0.0"
+  }
+}

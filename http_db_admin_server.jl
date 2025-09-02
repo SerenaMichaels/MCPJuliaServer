@@ -134,6 +134,119 @@ const TOOLS = [
             ),
             "required" => ["table_name", "schema_json"]
         )
+    ),
+    Dict(
+        "name" => "log_accomplishment",
+        "description" => "Log an accomplishment for a specific session and repository",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0007')"
+                ),
+                "repository" => Dict(
+                    "type" => "string",
+                    "description" => "Repository name (BotFarm, MCPJuliaServers, Job-God-Platform, CritterZOps)"
+                ),
+                "accomplishment_type" => Dict(
+                    "type" => "string",
+                    "description" => "Type of accomplishment (feature, bugfix, refactor, documentation, testing, integration)"
+                ),
+                "title" => Dict(
+                    "type" => "string",
+                    "description" => "Brief title of the accomplishment (max 200 chars)"
+                ),
+                "description" => Dict(
+                    "type" => "string",
+                    "description" => "Detailed description of what was accomplished"
+                ),
+                "success_level" => Dict(
+                    "type" => "string",
+                    "description" => "Level of success (completed, partial, blocked)"
+                ),
+                "files_created" => Dict(
+                    "type" => "array",
+                    "items" => Dict("type" => "string"),
+                    "description" => "List of files created"
+                ),
+                "files_modified" => Dict(
+                    "type" => "array", 
+                    "items" => Dict("type" => "string"),
+                    "description" => "List of files modified"
+                ),
+                "commit_hash" => Dict(
+                    "type" => "string",
+                    "description" => "Git commit hash if applicable"
+                )
+            ),
+            "required" => ["session_id", "repository", "title"]
+        )
+    ),
+    Dict(
+        "name" => "note_next_step",
+        "description" => "Record a next step for a session",
+        "inputSchema" => Dict(
+            "type" => "object", 
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0007')"
+                ),
+                "repository" => Dict(
+                    "type" => "string",
+                    "description" => "Repository name (optional)"
+                ),
+                "step_type" => Dict(
+                    "type" => "string",
+                    "description" => "Type of step (task, investigation, decision, integration)"
+                ),
+                "title" => Dict(
+                    "type" => "string",
+                    "description" => "Brief title of the next step (max 200 chars)"
+                ),
+                "description" => Dict(
+                    "type" => "string",
+                    "description" => "Detailed description of what needs to be done"
+                ),
+                "priority" => Dict(
+                    "type" => "string",
+                    "description" => "Priority level (critical, high, medium, low)"
+                ),
+                "estimated_effort" => Dict(
+                    "type" => "string",
+                    "description" => "Estimated effort (e.g., '2 hours', '1 day')"
+                )
+            ),
+            "required" => ["session_id", "title"]
+        )
+    ),
+    Dict(
+        "name" => "get_session_status",
+        "description" => "Get comprehensive session status across repositories",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string", 
+                    "description" => "Session identifier (e.g., '0007')"
+                ),
+                "include_accomplishments" => Dict(
+                    "type" => "boolean",
+                    "description" => "Include accomplishments in response (default: true)"
+                ),
+                "include_next_steps" => Dict(
+                    "type" => "boolean",
+                    "description" => "Include next steps in response (default: true)"
+                ),
+                "repository_filter" => Dict(
+                    "type" => "array",
+                    "items" => Dict("type" => "string"),
+                    "description" => "Filter by specific repositories"
+                )
+            ),
+            "required" => ["session_id"]
+        )
     )
 ]
 
@@ -335,6 +448,253 @@ function create_table_from_schema_tool(args::Dict)
     ))
 end
 
+function log_accomplishment_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    repository = get(args, "repository", "")
+    title = get(args, "title", "")
+    accomplishment_type = get(args, "accomplishment_type", "feature")
+    description = get(args, "description", "")
+    success_level = get(args, "success_level", "completed")
+    files_created = get(args, "files_created", String[])
+    files_modified = get(args, "files_modified", String[])
+    commit_hash = get(args, "commit_hash", "")
+    
+    if isempty(session_id) || isempty(repository) || isempty(title)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id, repository, and title are required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        # Create session_accomplishments table if it doesn't exist
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS session_accomplishments (
+            id SERIAL PRIMARY KEY,
+            session_id VARCHAR(20) NOT NULL,
+            repository VARCHAR(100) NOT NULL,
+            accomplishment_type VARCHAR(50) DEFAULT 'feature',
+            title VARCHAR(200) NOT NULL,
+            description TEXT,
+            success_level VARCHAR(20) DEFAULT 'completed',
+            files_created TEXT[],
+            files_modified TEXT[],
+            commit_hash VARCHAR(100),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+        
+        LibPQ.execute(conn, create_table_query)
+        
+        # Insert the accomplishment
+        insert_query = """
+        INSERT INTO session_accomplishments 
+        (session_id, repository, accomplishment_type, title, description, 
+         success_level, files_created, files_modified, commit_hash)
+        VALUES (\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9)
+        RETURNING id, created_at;
+        """
+        
+        result = LibPQ.execute(conn, insert_query, [
+            session_id, repository, accomplishment_type, title, description,
+            success_level, files_created, files_modified, commit_hash
+        ])
+        
+        row_data = Dict()
+        for row in result
+            row_data = Dict(zip(LibPQ.column_names(result), row))
+            break
+        end
+        
+        # return_connection(conn) # Not needed in simplified version
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "accomplishment_id" => row_data["id"],
+            "created_at" => string(row_data["created_at"]),
+            "message" => "Accomplishment logged successfully"
+        ))
+        
+    catch e
+        error_msg = "Failed to log accomplishment: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+function note_next_step_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    repository = get(args, "repository", "")
+    title = get(args, "title", "")
+    step_type = get(args, "step_type", "task")
+    description = get(args, "description", "")
+    priority = get(args, "priority", "medium")
+    estimated_effort = get(args, "estimated_effort", "")
+    
+    if isempty(session_id) || isempty(title)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id and title are required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        # Create session_next_steps table if it doesn't exist
+        create_table_query = """
+        CREATE TABLE IF NOT EXISTS session_next_steps (
+            id SERIAL PRIMARY KEY,
+            session_id VARCHAR(20) NOT NULL,
+            repository VARCHAR(100),
+            step_type VARCHAR(50) DEFAULT 'task',
+            title VARCHAR(200) NOT NULL,
+            description TEXT,
+            priority VARCHAR(20) DEFAULT 'medium',
+            estimated_effort VARCHAR(50),
+            status VARCHAR(20) DEFAULT 'pending',
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+        
+        LibPQ.execute(conn, create_table_query)
+        
+        # Insert the next step
+        insert_query = """
+        INSERT INTO session_next_steps 
+        (session_id, repository, step_type, title, description, priority, estimated_effort)
+        VALUES (\$1, \$2, \$3, \$4, \$5, \$6, \$7)
+        RETURNING id, created_at;
+        """
+        
+        result = LibPQ.execute(conn, insert_query, [
+            session_id, repository, step_type, title, description, priority, estimated_effort
+        ])
+        
+        row_data = Dict()
+        for row in result
+            row_data = Dict(zip(LibPQ.column_names(result), row))
+            break
+        end
+        
+        # return_connection(conn) # Not needed in simplified version
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "step_id" => row_data["id"],
+            "created_at" => string(row_data["created_at"]),
+            "message" => "Next step recorded successfully"
+        ))
+        
+    catch e
+        error_msg = "Failed to record next step: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+function get_session_status_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    include_accomplishments = get(args, "include_accomplishments", true)
+    include_next_steps = get(args, "include_next_steps", true)
+    repository_filter = get(args, "repository_filter", String[])
+    
+    if isempty(session_id)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id is required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        status_data = Dict(
+            "session_id" => session_id,
+            "timestamp" => string(Dates.now())
+        )
+        
+        # Get accomplishments if requested
+        if include_accomplishments
+            accomplishments_query = """
+            SELECT id, repository, accomplishment_type, title, description, 
+                   success_level, files_created, files_modified, commit_hash, created_at
+            FROM session_accomplishments 
+            WHERE session_id = \$1
+            """ * (isempty(repository_filter) ? "" : " AND repository = ANY(\$2)") * """
+            ORDER BY created_at DESC;
+            """
+            
+            accomplishments_result = if isempty(repository_filter)
+                LibPQ.execute(conn, accomplishments_query, [session_id])
+            else
+                LibPQ.execute(conn, accomplishments_query, [session_id, repository_filter])
+            end
+            
+            accomplishments = []
+            for row in accomplishments_result
+                push!(accomplishments, Dict(zip(LibPQ.column_names(accomplishments_result), row)))
+            end
+            status_data["accomplishments"] = accomplishments
+        end
+        
+        # Get next steps if requested
+        if include_next_steps
+            next_steps_query = """
+            SELECT id, repository, step_type, title, description, 
+                   priority, estimated_effort, status, created_at
+            FROM session_next_steps 
+            WHERE session_id = \$1
+            """ * (isempty(repository_filter) ? "" : " AND repository = ANY(\$2)") * """
+            ORDER BY 
+                CASE priority 
+                    WHEN 'critical' THEN 1
+                    WHEN 'high' THEN 2  
+                    WHEN 'medium' THEN 3
+                    WHEN 'low' THEN 4
+                    ELSE 5
+                END, created_at DESC;
+            """
+            
+            next_steps_result = if isempty(repository_filter)
+                LibPQ.execute(conn, next_steps_query, [session_id])
+            else
+                LibPQ.execute(conn, next_steps_query, [session_id, repository_filter])
+            end
+            
+            next_steps = []
+            for row in next_steps_result
+                push!(next_steps, Dict(zip(LibPQ.column_names(next_steps_result), row)))
+            end
+            status_data["next_steps"] = next_steps
+        end
+        
+        # return_connection(conn) # Not needed in simplified version
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "data" => status_data
+        ))
+        
+    catch e
+        error_msg = "Failed to get session status: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
 # MCP request handler
 function handle_mcp_request(request_data::Dict)
     try
@@ -377,6 +737,12 @@ function handle_mcp_request(request_data::Dict)
                 import_csv_tool(tool_args)
             elseif tool_name == "create_table_from_schema"
                 create_table_from_schema_tool(tool_args)
+            elseif tool_name == "log_accomplishment"
+                log_accomplishment_tool(tool_args)
+            elseif tool_name == "note_next_step"
+                note_next_step_tool(tool_args)
+            elseif tool_name == "get_session_status"
+                get_session_status_tool(tool_args)
             else
                 "Error: Unknown tool '$tool_name'"
             end
