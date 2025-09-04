@@ -1856,7 +1856,7 @@ function complete_task_bundle_tool(args::Dict)
         for title in task_titles
             update_query = """
             UPDATE session_next_steps 
-            SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+            SET status = 'completed'
             WHERE session_id = \$1 AND title = \$2
             """
             LibPQ.execute(conn, update_query, [session_id, title])
