@@ -1870,9 +1870,10 @@ function complete_task_bundle_tool(args::Dict)
         RETURNING id
         """
         
-        files_json = length(files_modified) > 0 ? JSON3.write(files_modified) : "[]"
+        # Convert Julia array to PostgreSQL array format
+        files_array = length(files_modified) > 0 ? files_modified : String[]
         
-        result = LibPQ.execute(conn, accomplishment_query, [session_id, repository, bundle_title, bundle_description, files_json])
+        result = LibPQ.execute(conn, accomplishment_query, [session_id, repository, bundle_title, bundle_description, files_array])
         
         accomplishment_id = nothing
         for row in result
