@@ -116,6 +116,81 @@ function get_connection(database::String)
     end
 end
 
+# Update session status file to keep it synchronized with database
+function update_session_status_file(session_id::String)
+    status_file_path = "/mnt/d/MCP-Agents/data/CURRENT_SESSION_STATUS.json"
+    
+    try
+        conn = get_connection()
+        
+        # Get current session focus and major accomplishments
+        session_query = """
+        SELECT title, description 
+        FROM session_accomplishments 
+        WHERE session_id = \$1 
+        ORDER BY created_at DESC 
+        LIMIT 10
+        """
+        
+        result = LibPQ.execute(conn, session_query, [session_id])
+        accomplishments = []
+        session_focus = "System Development"
+        
+        for (i, row) in enumerate(result)
+            title = row[1] === nothing ? "Untitled" : string(row[1])
+            description = row[2] === nothing ? "" : string(row[2])
+            push!(accomplishments, title)
+            
+            # Use first accomplishment title as potential session focus
+            if i == 1 && occursin("Session", title)
+                session_focus = title
+            end
+        end
+        
+        # Get next steps
+        next_steps_query = """
+        SELECT title, description 
+        FROM session_next_steps 
+        WHERE session_id = \$1 AND status = 'pending'
+        ORDER BY priority DESC, created_at 
+        LIMIT 5
+        """
+        
+        next_result = LibPQ.execute(conn, next_steps_query, [session_id])
+        next_objectives = []
+        
+        for row in next_result
+            title = row[1] === nothing ? "Untitled" : string(row[1])
+            push!(next_objectives, title)
+        end
+        
+        # Create simple status update
+        timestamp = string(now())
+        simple_update = Dict(
+            "session_id" => session_id,
+            "session_focus" => session_focus,
+            "last_updated" => timestamp,
+            "system_status" => "operational_with_auto_sync",
+            "major_accomplishments" => accomplishments[1:min(3, length(accomplishments))],
+            "next_objectives" => next_objectives[1:min(3, length(next_objectives))],
+            "sync_note" => "Auto-updated by PostgreSQL MCP session management tools"
+        )
+        
+        # Write simple JSON to avoid complex data structure issues
+        json_string = JSON3.write(simple_update)
+        open(status_file_path, "w") do f
+            write(f, json_string)
+        end
+        
+        @info "✅ Session status file updated for session $session_id"
+        return true
+        
+    catch e
+        @warn "⚠️ Failed to update session status file: $e"
+        return false
+    end
+end
+
 # MCP Tool definitions (same as original)
 const TOOLS = [
     Dict(
@@ -1764,6 +1839,9 @@ function get_session_planning_tool(args::Dict)
             planning_data["next_steps"] = next_steps
         end
         
+        # Update session status file
+        update_session_status_file(session_id)
+        
         # Return simple success with the data
         return JSON3.write(planning_data)
         
@@ -1815,6 +1893,9 @@ function add_subtask_tool(args::Dict)
             step_id = row[1]
             break
         end
+        
+        # Update session status file 
+        update_session_status_file(session_id)
         
         return JSON3.write(Dict(
             "success" => true,
@@ -1880,6 +1961,9 @@ function complete_task_bundle_tool(args::Dict)
             accomplishment_id = row[1]
             break
         end
+        
+        # Update session status file
+        update_session_status_file(session_id)
         
         return JSON3.write(Dict(
             "success" => true,
@@ -1950,6 +2034,9 @@ function session_checkpoint_tool(args::Dict)
                 break
             end
         end
+        
+        # Update session status file
+        update_session_status_file(session_id)
         
         return JSON3.write(Dict(
             "success" => true,
