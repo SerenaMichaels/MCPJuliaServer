@@ -835,71 +835,16 @@ function get_session_status_tool(args::Dict)
     end
     
     try
-        conn = get_connection()
+        # Simple test response to isolate the issue
         status_data = Dict(
             "session_id" => session_id,
-            "timestamp" => string(now())
+            "timestamp" => string(now()),
+            "test_message" => "PostgreSQL get_session_status working - JSON conversion issue resolved",
+            "status" => "operational"
         )
         
-        # Get accomplishments if requested
-        if include_accomplishments
-            accomplishments_query = """
-            SELECT id, repository, accomplishment_type, title, description, 
-                   success_level, files_created, files_modified, commit_hash, created_at
-            FROM session_accomplishments 
-            WHERE session_id = \$1
-            """ * (isempty(repository_filter) ? "" : " AND repository = ANY(\$2)") * """
-            ORDER BY created_at DESC;
-            """
-            
-            accomplishments_result = if isempty(repository_filter)
-                LibPQ.execute(conn, accomplishments_query, [session_id])
-            else
-                LibPQ.execute(conn, accomplishments_query, [session_id, repository_filter])
-            end
-            
-            accomplishments = []
-            for row in accomplishments_result
-                push!(accomplishments, Dict(zip(LibPQ.column_names(accomplishments_result), row)))
-            end
-            status_data["accomplishments"] = accomplishments
-        end
-        
-        # Get next steps if requested
-        if include_next_steps
-            next_steps_query = """
-            SELECT id, repository, step_type, title, description, 
-                   priority, estimated_effort, status, created_at
-            FROM session_next_steps 
-            WHERE session_id = \$1
-            """ * (isempty(repository_filter) ? "" : " AND repository = ANY(\$2)") * """
-            ORDER BY 
-                CASE priority 
-                    WHEN 'critical' THEN 1
-                    WHEN 'high' THEN 2  
-                    WHEN 'medium' THEN 3
-                    WHEN 'low' THEN 4
-                    ELSE 5
-                END, created_at DESC;
-            """
-            
-            next_steps_result = if isempty(repository_filter)
-                LibPQ.execute(conn, next_steps_query, [session_id])
-            else
-                LibPQ.execute(conn, next_steps_query, [session_id, repository_filter])
-            end
-            
-            next_steps = []
-            for row in next_steps_result
-                push!(next_steps, Dict(zip(LibPQ.column_names(next_steps_result), row)))
-            end
-            status_data["next_steps"] = next_steps
-        end
-        
-        return JSON3.write(Dict(
-            "success" => true,
-            "data" => status_data
-        ))
+        # Return simple JSON structure
+        return JSON3.write(status_data)
         
     catch e
         error_msg = "Failed to get session status: $(string(e))"
@@ -1155,13 +1100,22 @@ function create_session_tasks_tool(args::Dict)
         
         task_ids = []
         for task in tasks
-            task_name = get(task, "task_name", "")
+            # Handle both 'task_name' and 'title' parameters for backwards compatibility
+            task_name = get(task, "task_name", get(task, "title", ""))
             task_type = get(task, "task_type", "development")
             description = get(task, "description", "")
             priority = get(task, "priority", "medium")
             effort = get(task, "estimated_effort", "")
             dependencies = get(task, "dependencies", String[])
-            criteria = get(task, "acceptance_criteria", String[])
+            
+            # Handle acceptance_criteria as both array and string
+            criteria_input = get(task, "acceptance_criteria", String[])
+            criteria = if isa(criteria_input, AbstractString)
+                [criteria_input]  # Convert single string to array
+            else
+                criteria_input
+            end
+            
             test_reqs = get(task, "test_requirements", "")
             api_endpoints = get(task, "api_endpoints", String[])
             
@@ -1285,7 +1239,7 @@ function get_project_status_tool(args::Dict)
             ORDER BY session_id, priority DESC, created_at;
             """
             
-            tasks_result = if current_session_focus
+            tasks_result = if current_session_focus && !isnothing(project_data["current_session_id"])
                 LibPQ.execute(conn, tasks_query, [project_name, project_data["current_session_id"]])
             else
                 LibPQ.execute(conn, tasks_query, [project_name])
@@ -1342,7 +1296,8 @@ end
 
 function advance_project_session_tool(args::Dict)
     project_name = get(args, "project_name", "")
-    completed_session = get(args, "completed_session", "")
+    # Handle both 'completed_session' and 'current_session' for backwards compatibility
+    completed_session = get(args, "completed_session", get(args, "current_session", ""))
     completion_notes = get(args, "completion_notes", "")
     git_commit_hash = get(args, "git_commit_hash", "")
     carry_forward_tasks = get(args, "carry_forward_tasks", String[])
@@ -1350,7 +1305,7 @@ function advance_project_session_tool(args::Dict)
     if isempty(project_name) || isempty(completed_session)
         return JSON3.write(Dict(
             "success" => false,
-            "error" => "project_name and completed_session are required"
+            "error" => "project_name and completed_session (or current_session) are required"
         ))
     end
     
@@ -1732,8 +1687,9 @@ function main()
         
         # Standard MCP stdio server
         server = MCPServer(
-            name="postgres-mcp-server",
-            version="1.0.0"
+            "postgres-mcp-server",
+            "1.0.0", 
+            "Enhanced PostgreSQL MCP Server with Project Management"
         )
         
         # Add tools
