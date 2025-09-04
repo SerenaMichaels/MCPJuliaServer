@@ -509,6 +509,32 @@ const TOOLS = [
             ),
             "required" => ["project_name", "test_scenario_name", "message_sequence"]
         )
+    ),
+    Dict(
+        "name" => "get_session_planning",
+        "description" => "Get comprehensive session planning overview including roadmap phases, tasks, and next steps for a specific session",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0010')"
+                ),
+                "include_project_phases" => Dict(
+                    "type" => "boolean",
+                    "description" => "Include project roadmap phases (default: true)"
+                ),
+                "include_session_tasks" => Dict(
+                    "type" => "boolean", 
+                    "description" => "Include detailed session tasks (default: true)"
+                ),
+                "include_next_steps" => Dict(
+                    "type" => "boolean",
+                    "description" => "Include next steps (default: true)"
+                )
+            ),
+            "required" => ["session_id"]
+        )
     )
 ]
 
@@ -1529,6 +1555,133 @@ function capture_test_messages_tool(args::Dict)
     end
 end
 
+function get_session_planning_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    include_project_phases = get(args, "include_project_phases", true)
+    include_session_tasks = get(args, "include_session_tasks", true)
+    include_next_steps = get(args, "include_next_steps", true)
+    
+    if isempty(session_id)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id is required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        planning_data = Dict(
+            "session_id" => session_id,
+            "timestamp" => string(now())
+        )
+        
+        # Get project phases for this session
+        if include_project_phases
+            phases_query = """
+            SELECT project_name, phase_name, description, objectives, deliverables, 
+                   testing_requirements, documentation_requirements, git_requirements
+            FROM project_phases 
+            WHERE session_id = \$1
+            ORDER BY created_at
+            """
+            
+            phases_result = LibPQ.execute(conn, phases_query, [session_id])
+            phases = []
+            for row in phases_result
+                phase_dict = Dict()
+                for (i, col_name) in enumerate(LibPQ.column_names(phases_result))
+                    val = row[i]
+                    if val === nothing
+                        phase_dict[col_name] = nothing
+                    else
+                        phase_dict[col_name] = string(val)
+                    end
+                end
+                push!(phases, phase_dict)
+            end
+            planning_data["project_phases"] = phases
+        end
+        
+        # Get session tasks
+        if include_session_tasks
+            tasks_query = """
+            SELECT task_name, task_type, description, priority, estimated_effort, 
+                   acceptance_criteria, dependencies, api_endpoints, test_requirements
+            FROM session_tasks 
+            WHERE session_id = \$1
+            ORDER BY CASE priority 
+                WHEN 'critical' THEN 1 
+                WHEN 'high' THEN 2 
+                WHEN 'medium' THEN 3 
+                WHEN 'low' THEN 4 
+                ELSE 5 
+            END, created_at
+            """
+            
+            tasks_result = LibPQ.execute(conn, tasks_query, [session_id])
+            tasks = []
+            for row in tasks_result
+                task_dict = Dict()
+                for (i, col_name) in enumerate(LibPQ.column_names(tasks_result))
+                    val = row[i]
+                    if val === nothing
+                        task_dict[col_name] = nothing
+                    else
+                        task_dict[col_name] = string(val)
+                    end
+                end
+                push!(tasks, task_dict)
+            end
+            planning_data["session_tasks"] = tasks
+        end
+        
+        # Get next steps  
+        if include_next_steps
+            next_steps_query = """
+            SELECT title, description, priority, step_type, estimated_effort, repository
+            FROM session_next_steps 
+            WHERE session_id = \$1
+            ORDER BY CASE priority 
+                WHEN 'critical' THEN 1 
+                WHEN 'high' THEN 2 
+                WHEN 'medium' THEN 3 
+                WHEN 'low' THEN 4 
+                ELSE 5 
+            END, created_at
+            """
+            
+            next_steps_result = LibPQ.execute(conn, next_steps_query, [session_id])
+            next_steps = []
+            for row in next_steps_result
+                step_dict = Dict()
+                for (i, col_name) in enumerate(LibPQ.column_names(next_steps_result))
+                    val = row[i]
+                    if val === nothing
+                        step_dict[col_name] = nothing
+                    else
+                        step_dict[col_name] = string(val)
+                    end
+                end
+                push!(next_steps, step_dict)
+            end
+            planning_data["next_steps"] = next_steps
+        end
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "data" => planning_data
+        ))
+        
+    catch e
+        error_msg = "Failed to get session planning: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
 # MCP request handler
 function handle_mcp_request(request_data::Dict)
     try
@@ -1585,6 +1738,8 @@ function handle_mcp_request(request_data::Dict)
                 advance_project_session_tool(tool_args)
             elseif tool_name == "capture_test_messages"
                 capture_test_messages_tool(tool_args)
+            elseif tool_name == "get_session_planning"
+                get_session_planning_tool(tool_args)
             else
                 "Error: Unknown tool '$tool_name'"
             end
