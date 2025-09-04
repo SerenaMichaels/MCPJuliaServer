@@ -707,6 +707,60 @@ const TOOLS = [
             ),
             "required" => ["session_id", "checkpoint_name", "summary"]
         )
+    ),
+    Dict(
+        "name" => "get_phase_requirements",
+        "description" => "Get detailed requirements for a specific project phase",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0010')"
+                ),
+                "phase_name" => Dict(
+                    "type" => "string",
+                    "description" => "Phase name to get requirements for"
+                )
+            ),
+            "required" => ["session_id", "phase_name"]
+        )
+    ),
+    Dict(
+        "name" => "list_phases",
+        "description" => "List all phases for a session with status overview",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0010')"
+                )
+            ),
+            "required" => ["session_id"]
+        )
+    ),
+    Dict(
+        "name" => "update_phase_status",
+        "description" => "Update the status of a project phase",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0010')"
+                ),
+                "phase_name" => Dict(
+                    "type" => "string",
+                    "description" => "Phase name to update"
+                ),
+                "status" => Dict(
+                    "type" => "string",
+                    "description" => "New status (pending, in_progress, completed, blocked)"
+                )
+            ),
+            "required" => ["session_id", "phase_name", "status"]
+        )
     )
 ]
 
@@ -2055,6 +2109,193 @@ function session_checkpoint_tool(args::Dict)
     end
 end
 
+function get_phase_requirements_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    phase_name = get(args, "phase_name", "")
+    
+    if isempty(session_id) || isempty(phase_name)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id and phase_name are required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        phase_query = """
+        SELECT project_name, phase_name, description, objectives, deliverables, 
+               testing_requirements, documentation_requirements, git_requirements, status
+        FROM project_phases 
+        WHERE session_id = \$1 AND phase_name = \$2
+        """
+        
+        result = LibPQ.execute(conn, phase_query, [session_id, phase_name])
+        
+        if isempty(result)
+            return JSON3.write(Dict(
+                "success" => false,
+                "error" => "Phase not found"
+            ))
+        end
+        
+        row = first(result)
+        
+        # Convert PostgreSQL array strings to JSON arrays
+        function parse_pg_array(pg_str)
+            if pg_str === nothing || pg_str == ""
+                return []
+            end
+            # Remove outer braces and split by comma, then clean quotes
+            content = strip(pg_str, ['{', '}'])
+            if isempty(content)
+                return []
+            end
+            items = split(content, "\",\"")
+            # Clean up first and last items
+            items[1] = strip(items[1], ['"'])
+            if length(items) > 1
+                items[end] = strip(items[end], ['"'])
+            end
+            return items
+        end
+        
+        objectives_array = parse_pg_array(row[4])
+        deliverables_array = parse_pg_array(row[5])
+        
+        phase_data = Dict(
+            "project_name" => row[1],
+            "phase_name" => row[2], 
+            "description" => row[3],
+            "objectives" => objectives_array,
+            "deliverables" => deliverables_array,
+            "testing_requirements" => row[6],
+            "documentation_requirements" => row[7],
+            "git_requirements" => row[8],
+            "status" => row[9]
+        )
+        
+        # Update session status file
+        update_session_status_file(session_id)
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "phase" => phase_data
+        ))
+        
+    catch e
+        error_msg = "Failed to get phase requirements: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+function list_phases_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    
+    if isempty(session_id)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id is required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        phases_query = """
+        SELECT phase_number, phase_name, description, status, created_at
+        FROM project_phases 
+        WHERE session_id = \$1
+        ORDER BY phase_number
+        """
+        
+        result = LibPQ.execute(conn, phases_query, [session_id])
+        
+        phases = []
+        for row in result
+            phase_dict = Dict(
+                "phase_number" => row[1],
+                "phase_name" => row[2],
+                "description" => row[3],
+                "status" => row[4],
+                "created_at" => string(row[5])
+            )
+            push!(phases, phase_dict)
+        end
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "session_id" => session_id,
+            "phases" => phases,
+            "total_phases" => length(phases)
+        ))
+        
+    catch e
+        error_msg = "Failed to list phases: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+function update_phase_status_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    phase_name = get(args, "phase_name", "")
+    status = get(args, "status", "")
+    
+    if isempty(session_id) || isempty(phase_name) || isempty(status)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id, phase_name, and status are required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        update_query = """
+        UPDATE project_phases 
+        SET status = \$1
+        WHERE session_id = \$2 AND phase_name = \$3
+        RETURNING id
+        """
+        
+        result = LibPQ.execute(conn, update_query, [status, session_id, phase_name])
+        
+        if isempty(result)
+            return JSON3.write(Dict(
+                "success" => false,
+                "error" => "Phase not found or not updated"
+            ))
+        end
+        
+        # Update session status file
+        update_session_status_file(session_id)
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "message" => "Phase status updated successfully",
+            "session_id" => session_id,
+            "phase_name" => phase_name,
+            "new_status" => status
+        ))
+        
+    catch e
+        error_msg = "Failed to update phase status: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
 # MCP request handler
 function handle_mcp_request(request_data::Dict)
     try
@@ -2119,6 +2360,12 @@ function handle_mcp_request(request_data::Dict)
                 complete_task_bundle_tool(tool_args)
             elseif tool_name == "session_checkpoint"
                 session_checkpoint_tool(tool_args)
+            elseif tool_name == "get_phase_requirements"
+                get_phase_requirements_tool(tool_args)
+            elseif tool_name == "list_phases"
+                list_phases_tool(tool_args)
+            elseif tool_name == "update_phase_status"
+                update_phase_status_tool(tool_args)
             else
                 "Error: Unknown tool '$tool_name'"
             end
