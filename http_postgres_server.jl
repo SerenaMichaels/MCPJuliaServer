@@ -535,6 +535,103 @@ const TOOLS = [
             ),
             "required" => ["session_id"]
         )
+    ),
+    Dict(
+        "name" => "add_subtask",
+        "description" => "Add a subtask to an existing next step or create a new bundled task group",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0010')"
+                ),
+                "parent_title" => Dict(
+                    "type" => "string", 
+                    "description" => "Title of parent task/step (optional - creates new group if not found)"
+                ),
+                "subtask_title" => Dict(
+                    "type" => "string",
+                    "description" => "Title of the new subtask"
+                ),
+                "description" => Dict(
+                    "type" => "string",
+                    "description" => "Detailed description of the subtask"
+                ),
+                "priority" => Dict(
+                    "type" => "string",
+                    "enum" => ["critical", "high", "medium", "low"],
+                    "description" => "Priority level (default: medium)"
+                ),
+                "estimated_effort" => Dict(
+                    "type" => "string",
+                    "description" => "Estimated effort (e.g., '1 hour', '30 minutes')"
+                )
+            ),
+            "required" => ["session_id", "subtask_title", "description"]
+        )
+    ),
+    Dict(
+        "name" => "complete_task_bundle",
+        "description" => "Mark multiple related tasks as completed and log as accomplishment in single operation",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0010')"
+                ),
+                "task_titles" => Dict(
+                    "type" => "array",
+                    "items" => Dict("type" => "string"),
+                    "description" => "Array of task titles to mark as completed"
+                ),
+                "bundle_title" => Dict(
+                    "type" => "string",
+                    "description" => "Title for the completion accomplishment"
+                ),
+                "bundle_description" => Dict(
+                    "type" => "string", 
+                    "description" => "Description of what was accomplished"
+                ),
+                "repository" => Dict(
+                    "type" => "string",
+                    "description" => "Repository name (BotFarm, MCPJuliaServers, etc.)"
+                ),
+                "files_modified" => Dict(
+                    "type" => "array",
+                    "items" => Dict("type" => "string"),
+                    "description" => "List of files modified (optional)"
+                )
+            ),
+            "required" => ["session_id", "task_titles", "bundle_title", "bundle_description", "repository"]
+        )
+    ),
+    Dict(
+        "name" => "session_checkpoint",
+        "description" => "Create a session checkpoint with status summary and progress snapshot",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0010')"
+                ),
+                "checkpoint_name" => Dict(
+                    "type" => "string",
+                    "description" => "Name/identifier for this checkpoint"
+                ),
+                "summary" => Dict(
+                    "type" => "string",
+                    "description" => "Summary of current session progress"
+                ),
+                "include_bridge_message" => Dict(
+                    "type" => "boolean",
+                    "description" => "Send checkpoint notification to CD via bridge (default: true)"
+                )
+            ),
+            "required" => ["session_id", "checkpoint_name", "summary"]
+        )
     )
 ]
 
@@ -1667,13 +1764,201 @@ function get_session_planning_tool(args::Dict)
             planning_data["next_steps"] = next_steps
         end
         
-        return JSON3.write(Dict(
-            "success" => true,
-            "data" => planning_data
-        ))
+        # Return simple success with the data
+        return JSON3.write(planning_data)
         
     catch e
         error_msg = "Failed to get session planning: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+function add_subtask_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    parent_title = get(args, "parent_title", "")
+    subtask_title = get(args, "subtask_title", "")
+    description = get(args, "description", "")
+    priority = get(args, "priority", "medium")
+    estimated_effort = get(args, "estimated_effort", "")
+    
+    if isempty(session_id) || isempty(subtask_title) || isempty(description)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id, subtask_title, and description are required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        # Add the subtask as a next step
+        insert_query = """
+        INSERT INTO session_next_steps (session_id, title, description, priority, step_type, estimated_effort, status)
+        VALUES (\$1, \$2, \$3, \$4, 'task', \$5, 'pending')
+        RETURNING id
+        """
+        
+        full_title = if !isempty(parent_title)
+            "[$parent_title] $subtask_title"
+        else
+            subtask_title
+        end
+        
+        result = LibPQ.execute(conn, insert_query, [session_id, full_title, description, priority, estimated_effort])
+        
+        step_id = nothing
+        for row in result
+            step_id = row[1]
+            break
+        end
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "message" => "Subtask added successfully",
+            "step_id" => step_id,
+            "title" => full_title
+        ))
+        
+    catch e
+        error_msg = "Failed to add subtask: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+function complete_task_bundle_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    task_titles = get(args, "task_titles", [])
+    bundle_title = get(args, "bundle_title", "")
+    bundle_description = get(args, "bundle_description", "")
+    repository = get(args, "repository", "")
+    files_modified = get(args, "files_modified", [])
+    
+    if isempty(session_id) || isempty(task_titles) || isempty(bundle_title) || isempty(bundle_description) || isempty(repository)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id, task_titles, bundle_title, bundle_description, and repository are required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        # Mark tasks as completed
+        completed_count = 0
+        for title in task_titles
+            update_query = """
+            UPDATE session_next_steps 
+            SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = \$1 AND title = \$2
+            """
+            LibPQ.execute(conn, update_query, [session_id, title])
+            completed_count += 1
+        end
+        
+        # Log as accomplishment
+        accomplishment_query = """
+        INSERT INTO session_accomplishments (session_id, repository, accomplishment_type, title, description, success_level, files_modified)
+        VALUES (\$1, \$2, 'task_bundle', \$3, \$4, 'completed', \$5)
+        RETURNING id
+        """
+        
+        files_json = length(files_modified) > 0 ? JSON3.write(files_modified) : "[]"
+        
+        result = LibPQ.execute(conn, accomplishment_query, [session_id, repository, bundle_title, bundle_description, files_json])
+        
+        accomplishment_id = nothing
+        for row in result
+            accomplishment_id = row[1]
+            break
+        end
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "message" => "Task bundle completed successfully",
+            "tasks_completed" => completed_count,
+            "accomplishment_id" => accomplishment_id
+        ))
+        
+    catch e
+        error_msg = "Failed to complete task bundle: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+function session_checkpoint_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    checkpoint_name = get(args, "checkpoint_name", "")
+    summary = get(args, "summary", "")
+    include_bridge_message = get(args, "include_bridge_message", true)
+    
+    if isempty(session_id) || isempty(checkpoint_name) || isempty(summary)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id, checkpoint_name, and summary are required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        # Log checkpoint as accomplishment
+        checkpoint_query = """
+        INSERT INTO session_accomplishments (session_id, repository, accomplishment_type, title, description, success_level)
+        VALUES (\$1, 'MCPJuliaServers', 'checkpoint', \$2, \$3, 'completed')
+        RETURNING id
+        """
+        
+        checkpoint_title = "📊 SESSION CHECKPOINT: $checkpoint_name"
+        
+        result = LibPQ.execute(conn, checkpoint_query, [session_id, checkpoint_title, summary])
+        
+        accomplishment_id = nothing
+        for row in result
+            accomplishment_id = row[1]
+            break
+        end
+        
+        # Send bridge message if requested
+        if include_bridge_message
+            bridge_query = """
+            INSERT INTO claude_bridge_messages (session_id, sender, recipient, subject, message_content, priority, category)
+            VALUES (\$1, 'CC', 'CD', \$2, \$3, 'NORMAL', 'checkpoint')
+            RETURNING id
+            """
+            
+            bridge_subject = "SESSION CHECKPOINT: $checkpoint_name"
+            bridge_message = "SESSION CHECKPOINT CREATED: $summary Checkpoint logged as Accomplishment #$accomplishment_id. Current session progress documented for coordination."
+            
+            bridge_result = LibPQ.execute(conn, bridge_query, [session_id, bridge_subject, bridge_message])
+            
+            bridge_id = nothing
+            for row in bridge_result
+                bridge_id = row[1]
+                break
+            end
+        end
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "message" => "Session checkpoint created successfully",
+            "accomplishment_id" => accomplishment_id,
+            "bridge_message_sent" => include_bridge_message
+        ))
+        
+    catch e
+        error_msg = "Failed to create session checkpoint: $(string(e))"
         @error error_msg
         return JSON3.write(Dict(
             "success" => false,
@@ -1740,6 +2025,12 @@ function handle_mcp_request(request_data::Dict)
                 capture_test_messages_tool(tool_args)
             elseif tool_name == "get_session_planning"
                 get_session_planning_tool(tool_args)
+            elseif tool_name == "add_subtask"
+                add_subtask_tool(tool_args)
+            elseif tool_name == "complete_task_bundle"
+                complete_task_bundle_tool(tool_args)
+            elseif tool_name == "session_checkpoint"
+                session_checkpoint_tool(tool_args)
             else
                 "Error: Unknown tool '$tool_name'"
             end
