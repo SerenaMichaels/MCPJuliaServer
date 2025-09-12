@@ -441,7 +441,7 @@ function main()
                 delete_file_tool
             end
             
-            add_tool(server, tool["name"], tool["description"], tool_func, tool["inputSchema"])
+            add_tool!(server, MCPTool(tool["name"], tool["description"], tool["inputSchema"], tool_func))
         end
         
         @info "🚀 File MCP Server ready!"

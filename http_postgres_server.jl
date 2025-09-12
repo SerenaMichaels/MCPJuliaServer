@@ -32,6 +32,229 @@ const PG_CONFIG = SiteConfig.get_db_config()
 # Validate configuration
 SiteConfig.validate_config()
 
+# ============================================================================
+# SCHEMA-DRIVEN DATABASE ACCESS SYSTEM
+# ============================================================================
+
+# Database schema management - loads from BotFarm SCHEMA.md file
+struct ColumnSchema
+    name::String
+    type::String
+    nullable::Bool
+    default_value::Union{String, Nothing}
+    description::String
+end
+
+struct TableSchema
+    name::String
+    columns::Vector{ColumnSchema}
+    purpose::String
+end
+
+# Global schema cache
+const SCHEMA_CACHE = Dict{String, TableSchema}()
+const SCHEMA_VERSION = "1.0.0"
+const SCHEMA_PATH = "/mnt/d/MCP-Agents/repos/BotFarm/database/SCHEMA.md"
+
+# Parse SCHEMA.md file to extract table definitions
+function parse_schema_file(schema_path::String = SCHEMA_PATH)
+    @info "Loading database schema from: $schema_path"
+    
+    if !isfile(schema_path)
+        @error "Schema file not found: $schema_path"
+        return Dict{String, TableSchema}()
+    end
+    
+    schema_dict = Dict{String, TableSchema}()
+    
+    try
+        content = read(schema_path, String)
+        lines = split(content, '\n')
+        
+        current_table = nothing
+        current_purpose = ""
+        columns = ColumnSchema[]
+        in_table_section = false
+        
+        for line in lines
+            line = strip(line)
+            
+            # Match table headers: #### table_name
+            table_match = match(r"^#### ([a-z_]+)$", line)
+            if table_match !== nothing
+                # Save previous table if exists
+                if current_table !== nothing
+                    schema_dict[current_table] = TableSchema(current_table, copy(columns), current_purpose)
+                end
+                
+                current_table = table_match[1]
+                columns = ColumnSchema[]
+                current_purpose = ""
+                in_table_section = true
+                continue
+            end
+            
+            # Match purpose line: **Purpose**: Description
+            purpose_match = match(r"^\*\*Purpose\*\*: (.+)$", line)
+            if purpose_match !== nothing && in_table_section
+                current_purpose = purpose_match[1]
+                continue
+            end
+            
+            # Skip table header row and separator
+            if line == "| Column | Type | Nullable | Default | Description |" || 
+               line == "|--------|------|----------|---------|-------------|"
+                continue
+            end
+            
+            # Parse column definition row
+            if startswith(line, "|") && in_table_section && !isempty(line)
+                parts = [strip(part) for part in split(line, '|')][2:end-1] # Remove empty first/last
+                if length(parts) == 5
+                    col_name = parts[1]
+                    col_type = parts[2] 
+                    nullable = parts[3] == "YES"
+                    default_val = parts[4] == "-" ? nothing : parts[4]
+                    description = parts[5]
+                    
+                    push!(columns, ColumnSchema(col_name, col_type, nullable, default_val, description))
+                end
+            end
+            
+            # End of table section
+            if isempty(line) && in_table_section && !isempty(columns)
+                in_table_section = false
+            end
+        end
+        
+        # Save final table
+        if current_table !== nothing
+            schema_dict[current_table] = TableSchema(current_table, copy(columns), current_purpose)
+        end
+        
+        @info "✅ Loaded $(length(schema_dict)) table schemas from SCHEMA.md"
+        
+    catch e
+        @error "Failed to parse schema file: $e"
+        return Dict{String, TableSchema}()
+    end
+    
+    return schema_dict
+end
+
+# Convert PostgreSQL result value to appropriate Julia type based on schema
+function convert_pg_value(value, column_schema::ColumnSchema)
+    if value === nothing
+        return column_schema.nullable ? nothing : ""
+    end
+    
+    # Handle different PostgreSQL types
+    col_type_lower = lowercase(column_schema.type)
+    
+    if startswith(col_type_lower, "varchar") || col_type_lower == "text"
+        return string(value)
+    elseif col_type_lower == "integer" || col_type_lower == "int"
+        return value isa Integer ? value : parse(Int, string(value))
+    elseif col_type_lower == "boolean"
+        return value isa Bool ? value : (string(value) in ["t", "true", "1"])
+    elseif startswith(col_type_lower, "timestamp")
+        return string(value) # Keep as string for JSON serialization
+    elseif col_type_lower == "array"
+        # PostgreSQL arrays - convert to JSON-serializable format
+        if value isa AbstractVector
+            return [String(item) for item in value] # Ensure all elements are String type
+        else
+            # Parse PostgreSQL array format like {item1,item2,item3}
+            array_str = string(value)
+            if startswith(array_str, "{") && endswith(array_str, "}")
+                # Remove braces and split by comma
+                inner = array_str[2:end-1]
+                if isempty(inner)
+                    return String[]
+                else
+                    return [String(strip(item, ['"', ' '])) for item in split(inner, ",")]
+                end
+            else
+                return [String(array_str)]
+            end
+        end
+    elseif col_type_lower == "jsonb" || col_type_lower == "json"
+        # Handle JSON fields - keep as string for now, can be parsed later if needed
+        return string(value)
+    else
+        # Default: convert to string
+        return string(value)
+    end
+end
+
+# Robust database query function with schema-driven result conversion
+function execute_query_with_schema(conn, query::String, params::Vector = String[], table_names::Vector{String} = String[])
+    try
+        result = LibPQ.execute(conn, query, params)
+        
+        # If no table names provided, return raw result conversion
+        if isempty(table_names)
+            rows = []
+            for row in result
+                row_dict = Dict{String, Any}()
+                for (i, col_name) in enumerate(LibPQ.column_names(result))
+                    row_dict[col_name] = row[i] === nothing ? nothing : string(row[i])
+                end
+                push!(rows, row_dict)
+            end
+            return rows
+        end
+        
+        # Schema-driven conversion for specific tables
+        primary_table = table_names[1]
+        if !haskey(SCHEMA_CACHE, primary_table)
+            @warn "Schema not found for table: $primary_table, falling back to string conversion"
+            # Fallback to string conversion
+            rows = []
+            for row in result
+                row_dict = Dict{String, Any}()
+                for (i, col_name) in enumerate(LibPQ.column_names(result))
+                    row_dict[col_name] = row[i] === nothing ? "" : string(row[i])
+                end
+                push!(rows, row_dict)
+            end
+            return rows
+        end
+        
+        table_schema = SCHEMA_CACHE[primary_table]
+        column_schemas = Dict(col.name => col for col in table_schema.columns)
+        
+        rows = []
+        for row in result
+            row_dict = Dict{String, Any}()
+            for (i, col_name) in enumerate(LibPQ.column_names(result))
+                if haskey(column_schemas, col_name)
+                    row_dict[col_name] = convert_pg_value(row[i], column_schemas[col_name])
+                else
+                    # Column not in schema, use string conversion
+                    row_dict[col_name] = row[i] === nothing ? "" : string(row[i])
+                end
+            end
+            push!(rows, row_dict)
+        end
+        
+        return rows
+        
+    catch e
+        @error "Database query failed: $e"
+        rethrow(e)
+    end
+end
+
+# Initialize schema cache
+function init_schema_cache()
+    @info "Initializing database schema cache..."
+    global SCHEMA_CACHE
+    schema_dict = parse_schema_file()
+    merge!(SCHEMA_CACHE, schema_dict)
+    @info "✅ Schema cache initialized with $(length(SCHEMA_CACHE)) tables"
+end
+
 # Global connection pool
 mutable struct ConnectionPool
     connections::Vector{LibPQ.Connection}
@@ -65,6 +288,9 @@ function init_connection_pool()
     end
     
     @info "✅ Connection pool initialized with $(length(POOL.connections)) connections"
+    
+    # Initialize schema cache after connection pool is ready
+    init_schema_cache()
 end
 
 # Get connection from pool with simple recovery
@@ -741,6 +967,20 @@ const TOOLS = [
         )
     ),
     Dict(
+        "name" => "initialize_session",
+        "description" => "Initialize a session by setting it to active and resetting its tasks/next steps to pending",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier to initialize (e.g., '0012')"
+                )
+            ),
+            "required" => ["session_id"]
+        )
+    ),
+    Dict(
         "name" => "update_phase_status",
         "description" => "Update the status of a project phase",
         "inputSchema" => Dict(
@@ -1087,15 +1327,79 @@ function get_session_status_tool(args::Dict)
     end
     
     try
-        # Simple test response to isolate the issue
+        conn = get_connection()
+        
+        # Get session accomplishments using schema-driven query
+        accomplishments = []
+        if include_accomplishments
+            accomplishments_query = "SELECT title, description, accomplishment_type, success_level, created_at FROM session_accomplishments WHERE session_id = \$1 ORDER BY created_at DESC LIMIT 10"
+            accomplishments = execute_query_with_schema(conn, accomplishments_query, [session_id], ["session_accomplishments"])
+            # Rename accomplishment_type to type for compatibility
+            for acc in accomplishments
+                if haskey(acc, "accomplishment_type")
+                    acc["type"] = acc["accomplishment_type"]
+                    delete!(acc, "accomplishment_type")
+                end
+            end
+        end
+        
+        # Get session next steps using schema-driven query
+        next_steps = []
+        if include_next_steps
+            steps_query = "SELECT title, description, priority, step_type, estimated_effort FROM session_next_steps WHERE session_id = \$1 AND status != 'completed' ORDER BY priority DESC, created_at"
+            next_steps = execute_query_with_schema(conn, steps_query, [session_id], ["session_next_steps"])
+            # Rename step_type to type for compatibility
+            for step in next_steps
+                if haskey(step, "step_type")
+                    step["type"] = step["step_type"]
+                    delete!(step, "step_type")
+                end
+            end
+        end
+        
+        # Get session tasks using schema-driven query
+        tasks_query = "SELECT task_name, description, priority, status, estimated_effort FROM session_tasks WHERE session_id = \$1 ORDER BY priority DESC, created_at"
+        tasks = execute_query_with_schema(conn, tasks_query, [session_id], ["session_tasks"])
+        # Rename task_name to name for compatibility
+        for task in tasks
+            if haskey(task, "task_name")
+                task["name"] = task["task_name"]
+                delete!(task, "task_name")
+            end
+        end
+        
+        # Get project phase info using schema-driven query
+        phase_query = "SELECT phase_name, description, objectives, deliverables, status FROM project_phases WHERE session_id = \$1 LIMIT 1"
+        phase_results = execute_query_with_schema(conn, phase_query, [session_id], ["project_phases"])
+        phase_info = nothing
+        if !isempty(phase_results)
+            phase = phase_results[1]
+            phase_info = Dict(
+                "name" => get(phase, "phase_name", ""),
+                "description" => get(phase, "description", ""),
+                "objectives" => get(phase, "objectives", ""),
+                "deliverables" => get(phase, "deliverables", ""),
+                "status" => get(phase, "status", "")
+            )
+        end
+        
+        # Build comprehensive status response
         status_data = Dict(
             "session_id" => session_id,
             "timestamp" => string(now()),
-            "test_message" => "PostgreSQL get_session_status working - JSON conversion issue resolved",
-            "status" => "operational"
+            "success" => true,
+            "phase" => phase_info,
+            "tasks" => tasks,
+            "accomplishments" => accomplishments,
+            "next_steps" => next_steps,
+            "summary" => Dict(
+                "total_accomplishments" => length(accomplishments),
+                "pending_steps" => length(next_steps),
+                "total_tasks" => length(tasks),
+                "completed_tasks" => count(t -> get(t, "status", "") == "completed", tasks)
+            )
         )
         
-        # Return simple JSON structure
         return JSON3.write(status_data)
         
     catch e
@@ -1796,12 +2100,14 @@ function get_session_planning_tool(args::Dict)
     
     try
         conn = get_connection()
-        planning_data = Dict(
+        
+        # Create a fresh, guaranteed JSON-serializable result dictionary
+        result_data = Dict{String, Any}(
             "session_id" => session_id,
             "timestamp" => string(now())
         )
         
-        # Get project phases for this session
+        # Get project phases using schema-driven query
         if include_project_phases
             phases_query = """
             SELECT project_name, phase_name, description, objectives, deliverables, 
@@ -1810,25 +2116,21 @@ function get_session_planning_tool(args::Dict)
             WHERE session_id = \$1
             ORDER BY created_at
             """
+            phases_raw = execute_query_with_schema(conn, phases_query, [session_id], ["project_phases"])
             
-            phases_result = LibPQ.execute(conn, phases_query, [session_id])
-            phases = []
-            for row in phases_result
-                phase_dict = Dict()
-                for (i, col_name) in enumerate(LibPQ.column_names(phases_result))
-                    val = row[i]
-                    if val === nothing
-                        phase_dict[col_name] = nothing
-                    else
-                        phase_dict[col_name] = string(val)
-                    end
+            # Ensure each phase dict is JSON-serializable
+            phases_clean = []
+            for phase in phases_raw
+                phase_clean = Dict{String, Any}()
+                for (key, value) in phase
+                    phase_clean[String(key)] = value
                 end
-                push!(phases, phase_dict)
+                push!(phases_clean, phase_clean)
             end
-            planning_data["project_phases"] = phases
+            result_data["project_phases"] = phases_clean
         end
         
-        # Get session tasks
+        # Get session tasks using schema-driven query
         if include_session_tasks
             tasks_query = """
             SELECT task_name, task_type, description, priority, estimated_effort, 
@@ -1843,25 +2145,21 @@ function get_session_planning_tool(args::Dict)
                 ELSE 5 
             END, created_at
             """
+            tasks_raw = execute_query_with_schema(conn, tasks_query, [session_id], ["session_tasks"])
             
-            tasks_result = LibPQ.execute(conn, tasks_query, [session_id])
-            tasks = []
-            for row in tasks_result
-                task_dict = Dict()
-                for (i, col_name) in enumerate(LibPQ.column_names(tasks_result))
-                    val = row[i]
-                    if val === nothing
-                        task_dict[col_name] = nothing
-                    else
-                        task_dict[col_name] = string(val)
-                    end
+            # Ensure each task dict is JSON-serializable
+            tasks_clean = []
+            for task in tasks_raw
+                task_clean = Dict{String, Any}()
+                for (key, value) in task
+                    task_clean[String(key)] = value
                 end
-                push!(tasks, task_dict)
+                push!(tasks_clean, task_clean)
             end
-            planning_data["session_tasks"] = tasks
+            result_data["session_tasks"] = tasks_clean
         end
         
-        # Get next steps  
+        # Get next steps using schema-driven query
         if include_next_steps
             next_steps_query = """
             SELECT title, description, priority, step_type, estimated_effort, repository
@@ -1875,29 +2173,25 @@ function get_session_planning_tool(args::Dict)
                 ELSE 5 
             END, created_at
             """
+            next_steps_raw = execute_query_with_schema(conn, next_steps_query, [session_id], ["session_next_steps"])
             
-            next_steps_result = LibPQ.execute(conn, next_steps_query, [session_id])
-            next_steps = []
-            for row in next_steps_result
-                step_dict = Dict()
-                for (i, col_name) in enumerate(LibPQ.column_names(next_steps_result))
-                    val = row[i]
-                    if val === nothing
-                        step_dict[col_name] = nothing
-                    else
-                        step_dict[col_name] = string(val)
-                    end
+            # Ensure each step dict is JSON-serializable
+            next_steps_clean = []
+            for step in next_steps_raw
+                step_clean = Dict{String, Any}()
+                for (key, value) in step
+                    step_clean[String(key)] = value
                 end
-                push!(next_steps, step_dict)
+                push!(next_steps_clean, step_clean)
             end
-            planning_data["next_steps"] = next_steps
+            result_data["next_steps"] = next_steps_clean
         end
         
         # Update session status file
         update_session_status_file(session_id)
         
-        # Return simple success with the data
-        return JSON3.write(planning_data)
+        # Return the clean, serializable data
+        return JSON3.write(result_data)
         
     catch e
         error_msg = "Failed to get session planning: $(string(e))"
@@ -2244,6 +2538,78 @@ function list_phases_tool(args::Dict)
     end
 end
 
+function initialize_session_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    
+    if isempty(session_id)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id is required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        # Set the specified session's phase to active
+        update_active_query = """
+        UPDATE project_phases 
+        SET status = 'active'
+        WHERE session_id = \$1
+        RETURNING phase_name
+        """
+        
+        # Set all other sessions to pending
+        reset_others_query = """
+        UPDATE project_phases 
+        SET status = 'pending'
+        WHERE session_id != \$1 AND status = 'active'
+        """
+        
+        # Execute queries
+        LibPQ.execute(conn, reset_others_query, [session_id])
+        result = LibPQ.execute(conn, update_active_query, [session_id])
+        
+        phase_name = ""
+        found_session = false
+        for row in result
+            phase_name = row[1] === nothing ? "" : string(row[1])
+            found_session = true
+            break
+        end
+        
+        if !found_session
+            return JSON3.write(Dict(
+                "success" => false,
+                "error" => "Session not found: $session_id"
+            ))
+        end
+        
+        # Clear any completed session tasks and next steps for fresh start
+        clear_tasks_query = "UPDATE session_tasks SET status = 'pending' WHERE session_id = \$1 AND status = 'completed'"
+        clear_steps_query = "UPDATE session_next_steps SET status = 'pending' WHERE session_id = \$1 AND status = 'completed'"
+        
+        LibPQ.execute(conn, clear_tasks_query, [session_id])
+        LibPQ.execute(conn, clear_steps_query, [session_id])
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "session_id" => session_id,
+            "phase_name" => string(phase_name),
+            "status" => "active",
+            "message" => "Session $session_id initialized and set to active. All other sessions set to pending."
+        ))
+        
+    catch e
+        error_msg = "Failed to initialize session: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
 function update_phase_status_tool(args::Dict)
     session_id = get(args, "session_id", "")
     phase_name = get(args, "phase_name", "")
@@ -2364,6 +2730,8 @@ function handle_mcp_request(request_data::Dict)
                 get_phase_requirements_tool(tool_args)
             elseif tool_name == "list_phases"
                 list_phases_tool(tool_args)
+            elseif tool_name == "initialize_session"
+                initialize_session_tool(tool_args)
             elseif tool_name == "update_phase_status"
                 update_phase_status_tool(tool_args)
             else

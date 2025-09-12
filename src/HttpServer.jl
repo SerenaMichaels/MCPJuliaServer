@@ -93,6 +93,16 @@ function success_response(data::Any, config::HttpServerConfig)
 end
 
 """
+Create direct MCP response (no HTTP wrapper)
+"""
+function mcp_response(data::Any, config::HttpServerConfig)
+    headers = config.cors_enabled ? cors_headers() : []
+    push!(headers, "Content-Type" => "application/json")
+    
+    return HTTP.Response(200, headers, JSON3.write(data))
+end
+
+"""
 Parse JSON request body
 """
 function parse_request_body(req::HTTP.Request)
@@ -194,7 +204,7 @@ function handle_initialize(req::HTTP.Request, mcp_handler::Function, config::Htt
         
         # Call MCP handler
         result = mcp_handler(mcp_request)
-        return success_response(result, config)
+        return mcp_response(result, config)
         
     catch e
         return error_response(400, "Initialize failed: $(string(e))", config)
@@ -216,7 +226,7 @@ function handle_list_tools(req::HTTP.Request, mcp_handler::Function, config::Htt
         
         # Call MCP handler
         result = mcp_handler(mcp_request)
-        return success_response(result, config)
+        return mcp_response(result, config)
         
     catch e
         return error_response(500, "List tools failed: $(string(e))", config)
@@ -248,7 +258,7 @@ function handle_call_tool(req::HTTP.Request, mcp_handler::Function, config::Http
         
         # Call MCP handler
         result = mcp_handler(mcp_request)
-        return success_response(result, config)
+        return mcp_response(result, config)
         
     catch e
         return error_response(500, "Tool call failed: $(string(e))", config)

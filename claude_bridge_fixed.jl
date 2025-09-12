@@ -5,14 +5,14 @@ using JSON3
 using Dates
 using Logging
 
-# Bridge configuration
+# Bridge configuration from environment variables
 const BRIDGE_CONFIG = Dict(
-    "wsl_port" => 8085,
-    "windows_port" => 8086,
+    "wsl_port" => parse(Int, get(ENV, "CLAUDE_BRIDGE_PORT", get(ENV, "MCP_SERVER_PORT", "8080"))),
+    "windows_port" => parse(Int, get(ENV, "WINDOWS_BRIDGE_PORT", "8086")),
     "bridge_id" => "claude-bridge-" * string(hash(now())),
     "message_history" => Dict{String, Any}[],
     "active_connections" => Dict{String, Any}(),
-    "windows_bridge_url" => "http://localhost:8086"
+    "windows_bridge_url" => "http://localhost:" * get(ENV, "WINDOWS_BRIDGE_PORT", "8086")
 )
 
 """
@@ -222,7 +222,17 @@ end
 # Main execution
 if abspath(PROGRAM_FILE) == @__FILE__
     println("🌉 Starting Claude Communication Bridge...")
-    server = start_claude_bridge(8085)
+    
+    # Get port from environment configuration
+    port = BRIDGE_CONFIG["wsl_port"]
+    host = get(ENV, "MCP_SERVER_HOST", "0.0.0.0")
+    
+    println("📡 Bridge configuration:")
+    println("  - Port: $port (from environment)")
+    println("  - Host: $host")
+    println("  - Bridge ID: $(BRIDGE_CONFIG["bridge_id"])")
+    
+    server = start_claude_bridge(port)
     println("🎯 Claude Bridge running! Press Ctrl+C to stop")
     wait()
 end
