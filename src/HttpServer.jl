@@ -173,6 +173,8 @@ function create_router(mcp_handler::Function, config::HttpServerConfig)
                     return handle_server_info(req, config)
                 elseif uri_parts[2] == "docs"
                     return handle_documentation(req, mcp_handler, config)
+                elseif uri_parts[2] == "tools" && length(uri_parts) >= 3 && uri_parts[3] == "list"
+                    return handle_list_tools(req, mcp_handler, config)
                 end
             end
             

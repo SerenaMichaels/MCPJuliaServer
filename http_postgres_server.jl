@@ -5,6 +5,9 @@
 using Pkg
 Pkg.activate(".")
 
+include("src/MCPEnvironment.jl")
+using .MCPEnvironment
+
 include("src/JuliaMCPServer.jl")
 using .JuliaMCPServer
 
@@ -190,7 +193,16 @@ end
 # Robust database query function with schema-driven result conversion
 function execute_query_with_schema(conn, query::String, params::Vector = String[], table_names::Vector{String} = String[])
     try
-        result = LibPQ.execute(conn, query, params)
+        # Apply schema compliance translation before executing query
+        original_query = query
+        translated_query = translate_query_for_schema_compliance(query)
+        
+        # Log translation if query was modified
+        if translated_query != original_query
+            @info "🔧 Schema compliance translation applied (with_schema)" original=original_query translated=translated_query
+        end
+        
+        result = LibPQ.execute(conn, translated_query, params)
         
         # If no table names provided, return raw result conversion
         if isempty(table_names)
@@ -241,9 +253,76 @@ function execute_query_with_schema(conn, query::String, params::Vector = String[
         return rows
         
     catch e
-        @error "Database query failed: $e"
+        # Enhanced diagnostic error reporting for schema queries  
+        stack_trace = catch_backtrace()
+        calling_function = "execute_query_with_schema"
+        
+        error_type = typeof(e)
+        error_details = string(e)
+        
+        # Extract SQL query snippet for context
+        query_preview = length(query) > 200 ? query[1:200] * "..." : query
+        
+        enhanced_error_msg = """
+        ❌ SCHEMA QUERY EXECUTION FAILURE - FULL DIAGNOSTICS:
+        
+        🔍 ERROR DETAILS:
+           Type: $(error_type)
+           Message: $(error_details)
+           Function: $(calling_function)
+           Timestamp: $(Dates.now())
+        
+        📝 QUERY CONTEXT:
+           Query Length: $(length(query)) characters
+           Query Preview: $(query_preview)
+           Table Names Provided: $(table_names)
+           Parameters: $(params)
+        
+        🧬 STACK TRACE:
+           $(join(string.(stack_trace[1:min(5, length(stack_trace))]), "\n           "))
+        
+        🔧 SCHEMA STATUS:
+           Schema Cache Size: $(length(SCHEMA_CACHE)) tables
+           Tables Referenced: $(extract_table_names(query))
+           Available Tables: $(join(collect(keys(SCHEMA_CACHE)), ", "))
+        """
+        
+        @error enhanced_error_msg
         rethrow(e)
     end
+end
+
+# Extract table names from SQL query for diagnostics
+function extract_table_names(query::String)
+    table_names = String[]
+    
+    # Simple regex patterns to find table names
+    # Match "FROM table_name" and "JOIN table_name"
+    from_pattern = r"(?i)(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)"
+    matches = eachmatch(from_pattern, query)
+    
+    for match in matches
+        table_name = match.captures[1]
+        if table_name !== nothing && !(table_name in table_names)
+            push!(table_names, table_name)
+        end
+    end
+    
+    # Also check for INSERT INTO and UPDATE statements
+    insert_pattern = r"(?i)INSERT\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*)"
+    update_pattern = r"(?i)UPDATE\s+([a-zA-Z_][a-zA-Z0-9_]*)"
+    
+    for pattern in [insert_pattern, update_pattern]
+        matches = eachmatch(pattern, query)
+        for match in matches
+            table_name = match.captures[1]
+            if table_name !== nothing && !(table_name in table_names)
+                push!(table_names, table_name)
+            end
+        end
+    end
+    
+    return isempty(table_names) ? ["[no tables detected]"] : table_names
 end
 
 # Initialize schema cache
@@ -291,6 +370,75 @@ function init_connection_pool()
     
     # Initialize schema cache after connection pool is ready
     init_schema_cache()
+end
+
+# Schema compliance translation layer
+function translate_query_for_schema_compliance(query::String)
+    """
+    Translate queries to use correct table and column names according to official SCHEMA.md
+    This handles external clients that may use outdated or incorrect naming conventions.
+    """
+    translated_query = query
+    
+    # Table name translations
+    table_mappings = Dict(
+        "accomplishments" => "session_accomplishments",
+        "blender_assets" => "components", 
+        "current_session" => "project_phases", # Use project_phases as proxy for session tracking
+        "assets.blender_assets" => "components"
+    )
+    
+    # Column name translations by table context
+    column_mappings = Dict(
+        "project_phases" => Dict(
+            "updated_at" => "created_at"
+        ),
+        "claude_bridge_messages" => Dict(
+            "message" => "message_content",
+            "created_at" => "timestamp"  # claude_bridge_messages uses timestamp, not created_at
+        ),
+        "session_accomplishments" => Dict(
+            "timestamp" => "created_at"
+        ),
+        "components" => Dict(
+            "name" => "component_name",
+            "file_path" => "cad_file_path"
+        )
+    )
+    
+    # Apply table name translations
+    for (old_table, new_table) in table_mappings
+        # Handle FROM clauses
+        translated_query = replace(translated_query, r"\bFROM\s+" * old_table * r"\b" => "FROM " * new_table)
+        # Handle JOIN clauses  
+        translated_query = replace(translated_query, r"\bJOIN\s+" * old_table * r"\b" => "JOIN " * new_table)
+        # Handle table references in subqueries
+        translated_query = replace(translated_query, r"\b" * old_table * r"\." => new_table * ".")
+    end
+    
+    # Apply column name translations with context awareness
+    for (table_name, col_mappings) in column_mappings
+        # Only apply column translations if the query references this table
+        if occursin(table_name, translated_query)
+            for (old_col, new_col) in col_mappings
+                # Match column references with word boundaries to avoid partial matches
+                translated_query = replace(translated_query, r"\b" * old_col * r"\b" => new_col)
+            end
+        end
+    end
+    
+    # Handle database references - remove "assets." prefix since everything is in botfarm database
+    translated_query = replace(translated_query, r"\bassets\." => "")
+    
+    # Special case: current_session table doesn't exist, map to appropriate project_phases query
+    if occursin("current_session", query) && occursin("ORDER BY", query)
+        # Replace current_session queries with project_phases queries for active session tracking
+        translated_query = replace(translated_query, 
+            r"SELECT \* FROM current_session ORDER BY updated_at DESC LIMIT.*" => 
+            "SELECT session_id, phase_name, status, created_at FROM project_phases WHERE status IN ('active', 'in_progress') ORDER BY created_at DESC LIMIT 1")
+    end
+    
+    return translated_query
 end
 
 # Get connection from pool with simple recovery
@@ -1001,6 +1149,83 @@ const TOOLS = [
             ),
             "required" => ["session_id", "phase_name", "status"]
         )
+    ),
+    Dict(
+        "name" => "get_project_roadmap",
+        "description" => "Get comprehensive project roadmap with all phases and sessions",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "project_name" => Dict(
+                    "type" => "string",
+                    "description" => "Optional project name filter (default: all projects)"
+                ),
+                "include_completed" => Dict(
+                    "type" => "boolean",
+                    "description" => "Include completed phases (default: true)"
+                ),
+                "session_range" => Dict(
+                    "type" => "object",
+                    "properties" => Dict(
+                        "start_session" => Dict("type" => "string"),
+                        "end_session" => Dict("type" => "string")
+                    ),
+                    "description" => "Optional session range filter (e.g., start: '0010', end: '0015')"
+                )
+            )
+        )
+    ),
+    Dict(
+        "name" => "get_session_summary", 
+        "description" => "Get detailed summary of a specific session with accomplishments and planning",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Session identifier (e.g., '0012')"
+                ),
+                "include_tasks" => Dict(
+                    "type" => "boolean", 
+                    "description" => "Include session tasks (default: true)"
+                ),
+                "include_phases" => Dict(
+                    "type" => "boolean",
+                    "description" => "Include project phases for this session (default: true)"
+                ),
+                "include_metrics" => Dict(
+                    "type" => "boolean",
+                    "description" => "Include completion metrics and statistics (default: true)"
+                )
+            ),
+            "required" => ["session_id"]
+        )
+    ),
+    Dict(
+        "name" => "plan_next_session",
+        "description" => "Create planning for the next session based on current progress",
+        "inputSchema" => Dict(
+            "type" => "object",
+            "properties" => Dict(
+                "current_session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Current session identifier (e.g., '0012')"
+                ),
+                "next_session_id" => Dict(
+                    "type" => "string",
+                    "description" => "Next session identifier (e.g., '0013')"
+                ),
+                "focus_area" => Dict(
+                    "type" => "string",
+                    "description" => "Primary focus area for next session"
+                ),
+                "carry_forward_incomplete" => Dict(
+                    "type" => "boolean",
+                    "description" => "Carry forward incomplete tasks from current session (default: true)"
+                )
+            ),
+            "required" => ["current_session_id", "next_session_id"]
+        )
     )
 ]
 
@@ -1014,6 +1239,15 @@ function execute_sql_tool(args::Dict)
     end
     
     try
+        # Apply schema compliance translation before executing query
+        original_query = query
+        translated_query = translate_query_for_schema_compliance(query)
+        
+        # Log translation if query was modified
+        if translated_query != original_query
+            @info "🔧 Schema compliance translation applied" original=original_query translated=translated_query
+        end
+        
         # Create connection to specific database or use default
         if !isempty(database)
             conn = get_connection(database)
@@ -1021,7 +1255,7 @@ function execute_sql_tool(args::Dict)
             conn = get_connection()
         end
         
-        result = LibPQ.execute(conn, query)
+        result = LibPQ.execute(conn, translated_query)
         
         if result isa LibPQ.Result
             # Convert result to readable format
@@ -1045,12 +1279,52 @@ function execute_sql_tool(args::Dict)
         end
         
     catch e
-        error_msg = "SQL execution failed: $(string(e))"
+        # Enhanced diagnostic error reporting
+        stack_trace = catch_backtrace()
+        calling_function = "execute_sql_tool"
+        
+        # Get more detailed error information
+        error_type = typeof(e)
+        error_details = string(e)
+        
+        # Extract SQL query snippet for context
+        query_preview = length(query) > 200 ? query[1:200] * "..." : query
+        
+        # Enhanced error message with full diagnostics
+        error_msg = """
+        ❌ SQL EXECUTION FAILURE - FULL DIAGNOSTICS:
+        
+        🔍 ERROR DETAILS:
+           Type: $(error_type)
+           Message: $(error_details)
+           Function: $(calling_function)
+           Timestamp: $(Dates.now())
+        
+        📝 QUERY CONTEXT:
+           Database: $(database)
+           Query Length: $(length(query)) characters
+           Query Preview: $(query_preview)
+        
+        🧬 STACK TRACE:
+           $(join(string.(stack_trace[1:min(5, length(stack_trace))]), "\n           "))
+        
+        🔧 SCHEMA COMPLIANCE CHECK:
+           Tables Referenced: $(extract_table_names(query))
+           Available Tables: $(length(SCHEMA_CACHE)) loaded from schema
+        """
+        
         @error error_msg
+        
         return JSON3.write(Dict(
             "success" => false,
             "error" => error_msg,
-            "query" => query
+            "error_type" => string(error_type),
+            "error_details" => error_details,
+            "query" => query,
+            "query_length" => length(query),
+            "timestamp" => string(Dates.now()),
+            "calling_function" => calling_function,
+            "available_tables" => collect(keys(SCHEMA_CACHE))
         ))
     end
 end
@@ -2662,6 +2936,365 @@ function update_phase_status_tool(args::Dict)
     end
 end
 
+# Get comprehensive project roadmap with all phases and sessions
+function get_project_roadmap_tool(args::Dict)
+    project_name = get(args, "project_name", "")
+    include_completed = get(args, "include_completed", true)
+    session_range = get(args, "session_range", Dict())
+    
+    try
+        conn = get_connection()
+        
+        # Build WHERE clause
+        where_conditions = String[]
+        query_params = []
+        
+        if !isempty(project_name)
+            push!(where_conditions, "project_name = \$$(length(query_params) + 1)")
+            push!(query_params, project_name)
+        end
+        
+        if !include_completed
+            push!(where_conditions, "status != 'completed'")
+        end
+        
+        if haskey(session_range, "start_session") && !isempty(get(session_range, "start_session", ""))
+            push!(where_conditions, "session_id >= \$$(length(query_params) + 1)")
+            push!(query_params, get(session_range, "start_session", ""))
+        end
+        
+        if haskey(session_range, "end_session") && !isempty(get(session_range, "end_session", ""))
+            push!(where_conditions, "session_id <= \$$(length(query_params) + 1)")
+            push!(query_params, get(session_range, "end_session", ""))
+        end
+        
+        where_clause = isempty(where_conditions) ? "" : "WHERE " * join(where_conditions, " AND ")
+        
+        query = """
+        SELECT session_id, project_name, phase_number, phase_name, 
+               description, status, created_at, completed_at,
+               objectives, deliverables
+        FROM project_phases 
+        $where_clause
+        ORDER BY session_id, phase_number
+        """
+        
+        result = LibPQ.execute(conn, query, query_params)
+        
+        roadmap = Dict()
+        total_phases = 0
+        
+        for row in result
+            total_phases += 1
+            session_id = row[1] === nothing ? "unknown" : string(row[1])
+            
+            if !haskey(roadmap, session_id)
+                roadmap[session_id] = Dict(
+                    "project_name" => row[2] === nothing ? "" : string(row[2]),
+                    "phases" => []
+                )
+            end
+            
+            phase_info = Dict(
+                "phase_number" => row[3] === nothing ? 0 : Int(row[3]),
+                "phase_name" => row[4] === nothing ? "" : string(row[4]),
+                "description" => row[5] === nothing ? "" : string(row[5]),
+                "status" => row[6] === nothing ? "" : string(row[6]),
+                "created_at" => row[7] === nothing ? "" : string(row[7]),
+                "completed_at" => row[8] === nothing ? "" : string(row[8]),
+                "objectives" => row[9] === nothing ? [] : row[9],
+                "deliverables" => row[10] === nothing ? [] : row[10]
+            )
+            
+            push!(roadmap[session_id]["phases"], phase_info)
+        end
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "roadmap" => roadmap,
+            "total_sessions" => length(keys(roadmap)),
+            "total_phases" => total_phases,
+            "filters_applied" => Dict(
+                "project_name" => project_name,
+                "include_completed" => include_completed,
+                "session_range" => session_range
+            )
+        ))
+        
+    catch e
+        error_msg = "Failed to get project roadmap: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+# Get detailed summary of a specific session
+function get_session_summary_tool(args::Dict)
+    session_id = get(args, "session_id", "")
+    include_tasks = get(args, "include_tasks", true)
+    include_phases = get(args, "include_phases", true)
+    include_metrics = get(args, "include_metrics", true)
+    
+    if isempty(session_id)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "session_id is required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        summary = Dict(
+            "session_id" => session_id,
+            "summary_generated_at" => string(now())
+        )
+        
+        # Get accomplishments
+        accomplishments_query = """
+        SELECT accomplishment_type, title, description, success_level, 
+               files_created, files_modified, commit_hash, created_at
+        FROM session_accomplishments 
+        WHERE session_id = \$1 
+        ORDER BY created_at DESC
+        """
+        
+        result = LibPQ.execute(conn, accomplishments_query, [session_id])
+        accomplishments = []
+        
+        for row in result
+            push!(accomplishments, Dict(
+                "type" => row[1] === nothing ? "" : string(row[1]),
+                "title" => row[2] === nothing ? "" : string(row[2]),
+                "description" => row[3] === nothing ? "" : string(row[3]),
+                "success_level" => row[4] === nothing ? "" : string(row[4]),
+                "files_created" => row[5] === nothing ? [] : row[5],
+                "files_modified" => row[6] === nothing ? [] : row[6],
+                "commit_hash" => row[7] === nothing ? "" : string(row[7]),
+                "created_at" => row[8] === nothing ? "" : string(row[8])
+            ))
+        end
+        
+        summary["accomplishments"] = accomplishments
+        
+        # Get next steps
+        next_steps_query = """
+        SELECT step_type, title, description, priority, estimated_effort, status
+        FROM session_next_steps 
+        WHERE session_id = \$1 
+        ORDER BY priority DESC, created_at
+        """
+        
+        result = LibPQ.execute(conn, next_steps_query, [session_id])
+        next_steps = []
+        
+        for row in result
+            push!(next_steps, Dict(
+                "type" => row[1] === nothing ? "" : string(row[1]),
+                "title" => row[2] === nothing ? "" : string(row[2]),
+                "description" => row[3] === nothing ? "" : string(row[3]),
+                "priority" => row[4] === nothing ? "" : string(row[4]),
+                "estimated_effort" => row[5] === nothing ? "" : string(row[5]),
+                "status" => row[6] === nothing ? "" : string(row[6])
+            ))
+        end
+        
+        summary["next_steps"] = next_steps
+        
+        # Optionally include tasks
+        if include_tasks
+            tasks_query = """
+            SELECT task_name, task_type, description, priority, 
+                   estimated_effort, status, dependencies, acceptance_criteria
+            FROM session_tasks 
+            WHERE session_id = \$1 
+            ORDER BY priority DESC, created_at
+            """
+            
+            result = LibPQ.execute(conn, tasks_query, [session_id])
+            tasks = []
+            
+            for row in result
+                push!(tasks, Dict(
+                    "name" => row[1] === nothing ? "" : string(row[1]),
+                    "type" => row[2] === nothing ? "" : string(row[2]),
+                    "description" => row[3] === nothing ? "" : string(row[3]),
+                    "priority" => row[4] === nothing ? "" : string(row[4]),
+                    "estimated_effort" => row[5] === nothing ? "" : string(row[5]),
+                    "status" => row[6] === nothing ? "" : string(row[6]),
+                    "dependencies" => row[7] === nothing ? [] : row[7],
+                    "acceptance_criteria" => row[8] === nothing ? [] : row[8]
+                ))
+            end
+            
+            summary["tasks"] = tasks
+        end
+        
+        # Optionally include phases
+        if include_phases
+            phases_query = """
+            SELECT project_name, phase_number, phase_name, description, 
+                   status, objectives, deliverables
+            FROM project_phases 
+            WHERE session_id = \$1 
+            ORDER BY phase_number
+            """
+            
+            result = LibPQ.execute(conn, phases_query, [session_id])
+            phases = []
+            
+            for row in result
+                push!(phases, Dict(
+                    "project_name" => row[1] === nothing ? "" : string(row[1]),
+                    "phase_number" => row[2] === nothing ? 0 : Int(row[2]),
+                    "phase_name" => row[3] === nothing ? "" : string(row[3]),
+                    "description" => row[4] === nothing ? "" : string(row[4]),
+                    "status" => row[5] === nothing ? "" : string(row[5]),
+                    "objectives" => row[6] === nothing ? [] : row[6],
+                    "deliverables" => row[7] === nothing ? [] : row[7]
+                ))
+            end
+            
+            summary["phases"] = phases
+        end
+        
+        # Optionally include metrics
+        if include_metrics
+            summary["metrics"] = Dict(
+                "total_accomplishments" => length(accomplishments),
+                "total_next_steps" => length(next_steps),
+                "completed_accomplishments" => count(a -> get(a, "success_level", "") == "completed", accomplishments),
+                "pending_next_steps" => count(ns -> get(ns, "status", "") == "pending", next_steps)
+            )
+        end
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "session_summary" => summary
+        ))
+        
+    catch e
+        error_msg = "Failed to get session summary: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
+# Create planning for next session based on current progress
+function plan_next_session_tool(args::Dict)
+    current_session_id = get(args, "current_session_id", "")
+    next_session_id = get(args, "next_session_id", "")
+    focus_area = get(args, "focus_area", "")
+    carry_forward_incomplete = get(args, "carry_forward_incomplete", true)
+    
+    if isempty(current_session_id) || isempty(next_session_id)
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => "current_session_id and next_session_id are required"
+        ))
+    end
+    
+    try
+        conn = get_connection()
+        
+        planning_summary = Dict(
+            "current_session" => current_session_id,
+            "next_session" => next_session_id,
+            "focus_area" => focus_area,
+            "planning_generated_at" => string(now())
+        )
+        
+        # Get incomplete tasks from current session if requested
+        if carry_forward_incomplete
+            incomplete_tasks_query = """
+            SELECT task_name, task_type, description, priority, estimated_effort,
+                   dependencies, acceptance_criteria, test_requirements
+            FROM session_tasks 
+            WHERE session_id = \$1 AND status NOT IN ('completed', 'cancelled')
+            ORDER BY priority DESC
+            """
+            
+            result = LibPQ.execute(conn, incomplete_tasks_query, [current_session_id])
+            carry_forward_tasks = []
+            
+            for row in result
+                push!(carry_forward_tasks, Dict(
+                    "name" => row[1] === nothing ? "" : string(row[1]),
+                    "type" => row[2] === nothing ? "" : string(row[2]),
+                    "description" => row[3] === nothing ? "" : string(row[3]),
+                    "priority" => row[4] === nothing ? "medium" : string(row[4]),
+                    "estimated_effort" => row[5] === nothing ? "" : string(row[5]),
+                    "dependencies" => row[6] === nothing ? [] : row[6],
+                    "acceptance_criteria" => row[7] === nothing ? [] : row[7],
+                    "test_requirements" => row[8] === nothing ? "" : string(row[8]),
+                    "carried_from" => current_session_id
+                ))
+            end
+            
+            planning_summary["carry_forward_tasks"] = carry_forward_tasks
+        end
+        
+        # Get pending next steps from current session
+        next_steps_query = """
+        SELECT step_type, title, description, priority, estimated_effort
+        FROM session_next_steps 
+        WHERE session_id = \$1 AND status = 'pending'
+        ORDER BY priority DESC
+        """
+        
+        result = LibPQ.execute(conn, next_steps_query, [current_session_id])
+        suggested_next_steps = []
+        
+        for row in result
+            push!(suggested_next_steps, Dict(
+                "type" => row[1] === nothing ? "task" : string(row[1]),
+                "title" => row[2] === nothing ? "" : string(row[2]),
+                "description" => row[3] === nothing ? "" : string(row[3]),
+                "priority" => row[4] === nothing ? "medium" : string(row[4]),
+                "estimated_effort" => row[5] === nothing ? "" : string(row[5]),
+                "source" => "next_steps_from_" * current_session_id
+            ))
+        end
+        
+        planning_summary["suggested_next_steps"] = suggested_next_steps
+        
+        # Planning recommendations
+        total_items = length(get(planning_summary, "carry_forward_tasks", [])) + 
+                     length(suggested_next_steps)
+        
+        planning_summary["recommendations"] = Dict(
+            "total_items_to_plan" => total_items,
+            "focus_suggestion" => isempty(focus_area) ? 
+                "Consider defining a focus area for the next session" : focus_area,
+            "planning_notes" => [
+                "Review carry-forward tasks for continued relevance",
+                "Prioritize items based on current project needs",
+                "Consider dependencies when scheduling tasks",
+                "Update task descriptions if requirements have changed"
+            ]
+        )
+        
+        return JSON3.write(Dict(
+            "success" => true,
+            "session_planning" => planning_summary
+        ))
+        
+    catch e
+        error_msg = "Failed to create session planning: $(string(e))"
+        @error error_msg
+        return JSON3.write(Dict(
+            "success" => false,
+            "error" => error_msg
+        ))
+    end
+end
+
 # MCP request handler
 function handle_mcp_request(request_data::Dict)
     try
@@ -2734,6 +3367,12 @@ function handle_mcp_request(request_data::Dict)
                 initialize_session_tool(tool_args)
             elseif tool_name == "update_phase_status"
                 update_phase_status_tool(tool_args)
+            elseif tool_name == "get_project_roadmap"
+                get_project_roadmap_tool(tool_args)
+            elseif tool_name == "get_session_summary"
+                get_session_summary_tool(tool_args)
+            elseif tool_name == "plan_next_session"
+                plan_next_session_tool(tool_args)
             else
                 "Error: Unknown tool '$tool_name'"
             end
@@ -2790,8 +3429,8 @@ end
 function main()
     # Check if HTTP mode is requested
     http_mode = get(ENV, "MCP_HTTP_MODE", "false") == "true"
-    http_port = parse(Int, get(ENV, "MCP_HTTP_PORT", "8080"))
-    http_host = get(ENV, "MCP_HTTP_HOST", "0.0.0.0")
+    http_port = get_server_port("postgres")
+    http_host = get_server_host()
     
     # Initialize database connection pool
     init_connection_pool()

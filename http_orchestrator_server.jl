@@ -5,6 +5,9 @@
 using Pkg
 Pkg.activate(".")
 
+include("src/MCPEnvironment.jl")
+using .MCPEnvironment
+
 include("src/JuliaMCPServer.jl")
 using .JuliaMCPServer
 
@@ -306,8 +309,8 @@ end
 function main()
     # Check if HTTP mode is requested
     http_mode = get(ENV, "MCP_HTTP_MODE", "false") == "true"
-    http_port = parse(Int, get(ENV, "MCP_HTTP_PORT", "8083"))
-    http_host = get(ENV, "MCP_HTTP_HOST", "0.0.0.0")
+    http_port = get_server_port("orchestrator")
+    http_host = get_server_host()
     
     if http_mode
         @info "🌐 Starting Orchestrator HTTP server mode..."
